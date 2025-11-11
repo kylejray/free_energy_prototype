@@ -1,0 +1,36 @@
+# Node / frontend
+node_modules/
+.dist/
+dist/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Vite cache
+.vite/
+
+# Build artifacts
+coverage/
+*.tsbuildinfo
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.eggs/
+.python-version
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# Cache & editor files
+.DS_Store
+*.swp
+*.swo
+.idea/
+.vscode/

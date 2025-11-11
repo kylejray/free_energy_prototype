@@ -31,18 +31,16 @@ Free Energy Estimates for symmetric protocols
 
 """
 
-from typing import Tuple, Optional
+from __future__ import annotations
 
-import jax.numpy as jnp
-import jax
+from typing import Optional, Tuple
 
-from jax.scipy.special import (
-    expit,
-)  # Logistic sigmoid: expit(x) = 1/(1+exp(-x))
-from jax.scipy.special import logsumexp
-import jaxopt
+import numpy as np
+from numpy.typing import ArrayLike, NDArray
+from scipy.optimize import root_scalar
+from scipy.special import expit, logsumexp
 
-from .utils import logexpit, Array, ArrayLike
+from .utils import logexpit
 
 __all__ = (
     "free_energy_bar",
@@ -55,7 +53,14 @@ __all__ = (
 )
 
 
-def free_energy_logmeanexp(work_f: ArrayLike) -> Array:
+FloatArray = NDArray[np.float64]
+
+
+def _as_float_array(values: ArrayLike) -> FloatArray:
+    return np.asarray(values, dtype=np.float64)
+
+
+def free_energy_logmeanexp(work_f: ArrayLike) -> float:
     """
     Calculate the free energy difference from a series of work measurements
     using the Jarzynski equality.
@@ -70,14 +75,14 @@ def free_energy_logmeanexp(work_f: ArrayLike) -> Array:
     Ref:
         TODO
     """
-    work_f = jnp.asarray(work_f, dtype=jnp.float64)
-    N_f = work_f.size
-    delta_free_energy = -(logsumexp(-work_f) - jnp.log(N_f))
+    work_f_arr = _as_float_array(work_f)
+    N_f = work_f_arr.size
+    delta_free_energy = -(logsumexp(-work_f_arr) - np.log(N_f))
 
-    return delta_free_energy
+    return float(delta_free_energy)
 
 
-def free_energy_logmeanexp_gaussian(work_f: ArrayLike) -> Array:
+def free_energy_logmeanexp_gaussian(work_f: ArrayLike) -> float:
     """
     Calculate the free energy difference from a series of work measurements
     under the assumption that the work distributions is Gaussian.
@@ -89,9 +94,9 @@ def free_energy_logmeanexp_gaussian(work_f: ArrayLike) -> Array:
     Ref:
         TODO
     """
-    work_f = jnp.asarray(work_f, dtype=jnp.float64)
-    delta_free_energy = jnp.average(work_f) - 0.5 * jnp.var(work_f)
-    return delta_free_energy
+    work_f_arr = _as_float_array(work_f)
+    delta_free_energy = np.average(work_f_arr) - 0.5 * np.var(work_f_arr)
+    return float(delta_free_energy)
 
 
 def free_energy_bar(
@@ -100,7 +105,7 @@ def free_energy_bar(
     weights_f: Optional[ArrayLike] = None,
     weights_r: Optional[ArrayLike] = None,
     uncertainty_method: str = "BAR",
-) -> Tuple[Array, Array]:
+) -> Tuple[float, float]:
     """
     Estimate a free energy difference using the Bennett Acceptance Ratio method (BAR).
 
@@ -125,69 +130,81 @@ def free_energy_bar(
         ???, ???, ???, ???
 
     """
+    W_f = _as_float_array(work_f)
+    W_r = _as_float_array(work_r)
 
-    W_f = jnp.asarray(work_f, dtype=jnp.float64)
-    W_r = jnp.asarray(work_r, dtype=jnp.float64)
+    weights_f_arr = _as_float_array(weights_f) if weights_f is not None else np.ones_like(W_f)
+    weights_r_arr = _as_float_array(weights_r) if weights_r is not None else np.ones_like(W_r)
 
-    if weights_f is None:
-        weights_f = jnp.ones_like(W_f)
-    weights_f = jnp.asarray(weights_f, dtype=jnp.float64)
+    N_f = float(np.sum(weights_f_arr))
+    N_r = float(np.sum(weights_r_arr))
+    if N_f <= 0 or N_r <= 0:
+        raise ValueError("Weights must sum to positive values for both forward and reverse works.")
 
-    if weights_r is None:
-        weights_r = jnp.ones_like(W_r)
-    weights_r = jnp.asarray(weights_r, dtype=jnp.float64)
+    M = np.log(N_f / N_r)
 
-    N_f = sum(weights_f)
-    N_r = sum(weights_r)
-    M = jnp.log(N_f / N_r)
+    lower = float(np.min([np.min(W_f), np.min(-W_r)]))
+    upper = float(np.max([np.max(W_f), np.max(-W_r)]))
+    if not np.isfinite(lower) or not np.isfinite(upper):
+        raise ValueError("Work arrays must contain finite values.")
+    if upper <= lower:
+        upper = lower + 1e-6
 
-    lower = jnp.min(jnp.asarray([jnp.amin(W_f), jnp.amin(-W_r)]))
-    upper = jnp.max(jnp.asarray([jnp.amax(W_f), jnp.amax(-W_r)]))
-
-    def _bar(delta_free_energy: float) -> Array:
+    def _bar(delta_free_energy: float) -> float:
         diss_f = W_f - delta_free_energy + M
         diss_r = W_r + delta_free_energy - M
 
-        f = jnp.log(jnp.sum(weights_f * expit(-diss_f)))
-        r = jnp.log(jnp.sum(weights_r * expit(-diss_r)))
-        return f - r
+        f = np.log(np.sum(weights_f_arr * expit(-diss_f)))
+        r = np.log(np.sum(weights_r_arr * expit(-diss_r)))
+        return float(f - r)
 
-    # Maximum likelihood free energy
-    delta_free_energy = jaxopt.Bisection(_bar, lower, upper).run().params  # Find root
+    f_lower = _bar(lower)
+    f_upper = _bar(upper)
+    if np.sign(f_lower) == np.sign(f_upper):
+        span = max(1.0, upper - lower)
+        for _ in range(25):
+            lower -= span
+            upper += span
+            f_lower = _bar(lower)
+            f_upper = _bar(upper)
+            if np.sign(f_lower) != np.sign(f_upper):
+                break
+            span *= 1.5
+        else:
+            raise RuntimeError("Unable to bracket BAR root with current data.")
 
-    # Error estimation
-    diss_f = work_f - delta_free_energy + M
-    diss_r = work_r + delta_free_energy - M
+    result = root_scalar(_bar, bracket=(lower, upper), method="bisect")
+    if not result.converged:
+        raise RuntimeError("BAR root finding failed to converge.")
+    delta_free_energy = float(result.root)
 
-    slogF = jnp.sum(weights_f * expit(-diss_f))
-    slogR = jnp.sum(weights_r * expit(-diss_r))
+    diss_f = W_f - delta_free_energy + M
+    diss_r = W_r + delta_free_energy - M
 
-    slogF2 = jnp.sum(weights_f * expit(-diss_f) ** 2)
-    slogR2 = jnp.sum(weights_r * expit(-diss_r) ** 2)
+    slogF = np.sum(weights_f_arr * expit(-diss_f))
+    slogR = np.sum(weights_r_arr * expit(-diss_r))
+
+    slogF2 = np.sum(weights_f_arr * expit(-diss_f) ** 2)
+    slogR2 = np.sum(weights_r_arr * expit(-diss_r) ** 2)
 
     nratio = (N_f + N_r) / (N_f * N_r)
 
     if uncertainty_method == "BAR":
-        # BAR error estimate
-        # (Underestimates error if posterior not Gaussian)
-        err = jnp.sqrt((slogF2 / slogF**2) + (slogR2 / slogR**2) - nratio)
+        err = np.sqrt((slogF2 / slogF**2) + (slogR2 / slogR**2) - nratio)
     elif uncertainty_method == "MBAR":
-        # MBAR error estimate
-        # (Massively overestimates error if posterior not Gaussian)
-        err = jnp.sqrt(1.0 / (slogF - slogF2 + slogR - slogR2) - nratio)
+        err = np.sqrt(1.0 / (slogF - slogF2 + slogR - slogR2) - nratio)
     elif uncertainty_method == "Logistic":
-        # MBAR error with a correction for non-overlapping work distributions
-        mbar_err = jnp.sqrt(1.0 / (slogF - slogF2 + slogR - slogR2) - nratio)
-        min_hysteresis = jnp.min(work_f) + jnp.min(work_r)
-        logistic_err = jnp.sqrt((min_hysteresis**2 + 4 * jnp.pi**2) / 12)
-        err = jnp.minimum(logistic_err, mbar_err)
+        mbar_err = np.sqrt(1.0 / (slogF - slogF2 + slogR - slogR2) - nratio)
+        min_hysteresis = float(np.min(W_f) + np.min(W_r))
+        logistic_err = np.sqrt((min_hysteresis**2 + 4 * np.pi**2) / 12)
+        err = min(logistic_err, mbar_err)
     else:
         raise ValueError("Unknown uncertainty estimation method")
 
-    return delta_free_energy, err
+    return delta_free_energy, float(err)
 
 
-def free_energy_bayesian(work_f: ArrayLike, work_r: ArrayLike) -> Tuple[Array, Array]:
+def free_energy_bayesian(work_f: ArrayLike, work_r: ArrayLike) -> Tuple[float, float]:
     """Bayesian free energy estimate
 
     Args:
@@ -199,13 +216,13 @@ def free_energy_bayesian(work_f: ArrayLike, work_r: ArrayLike) -> Tuple[Array, A
     """
     df, prob = free_energy_posterior(work_f, work_r)
 
-    delta_free_energy = jnp.sum(df * prob)
-    err = jnp.sqrt(jnp.sum(df * df * prob) - delta_free_energy**2)
+    delta_free_energy = float(np.sum(df * prob))
+    err = float(np.sqrt(np.sum(df * df * prob) - delta_free_energy**2))
 
     return delta_free_energy, err
 
 
-def free_energy_posterior(work_f: ArrayLike, work_r: ArrayLike) -> Tuple[Array, Array]:
+def free_energy_posterior(work_f: ArrayLike, work_r: ArrayLike) -> Tuple[FloatArray, FloatArray]:
     """The Bayesian free energy posterior distribution.
 
     Args:
@@ -215,29 +232,32 @@ def free_energy_posterior(work_f: ArrayLike, work_r: ArrayLike) -> Tuple[Array, 
         energy and probability, pair of arrays of shapes [N]
     """
 
-    w_f = jnp.asarray(work_f, dtype=jnp.float64)
-    w_r = jnp.asarray(work_r, dtype=jnp.float64)
+    w_f = _as_float_array(work_f)
+    w_r = _as_float_array(work_r)
 
     fe, err = free_energy_bar(work_f, work_r, uncertainty_method="Logistic")
     lower = fe - 4 * err
     upper = fe + 4 * err
 
-    x = jnp.linspace(lower, upper, 100, dtype=jnp.float64)
+    x = np.linspace(lower, upper, 100, dtype=np.float64)
 
     N_f = w_f.size
     N_r = w_r.size
-    M = jnp.log(N_f / N_r)
+    M = np.log(N_f / N_r)
 
-    def compute_log_prob(fe: Array) -> Array:
-        diss_f = w_f - fe + M
-        diss_r = w_r + fe - M
-        return jnp.sum(logexpit(diss_f)) + jnp.sum(logexpit(diss_r))  # type: ignore
+    def compute_log_prob(fe_value: float) -> float:
+        diss_f = w_f - fe_value + M
+        diss_r = w_r + fe_value - M
+        return float(np.sum(logexpit(diss_f)) + np.sum(logexpit(diss_r)))
 
-    log_prob = jax.vmap(compute_log_prob)(x)
+    log_prob = np.array([compute_log_prob(val) for val in x], dtype=np.float64)
 
-    log_prob -= jnp.amax(log_prob)
-    prob = jnp.exp(log_prob)
-    prob /= jnp.sum(prob)
+    log_prob -= np.max(log_prob)
+    prob = np.exp(log_prob)
+    total = np.sum(prob)
+    if total == 0.0:
+        raise RuntimeError("Posterior probabilities underflowed to zero.")
+    prob /= total
 
     return x, prob
 
@@ -246,7 +266,7 @@ def free_energy_symmetric_bar(
     work_ab: ArrayLike,
     work_bc: ArrayLike,
     uncertainty_method: str = "BAR",
-) -> Tuple[Array, Array]:
+) -> Tuple[float, float]:
     """BAR for symmetric periodic protocols.
 
     Args:
@@ -258,14 +278,14 @@ def free_energy_symmetric_bar(
         Estimated free energy difference to the middle point of the protocol, and
         an estimated error
     """
-    work_ab = jnp.asarray(work_ab, dtype=jnp.float64)
-    work_bc = jnp.asarray(work_bc, dtype=jnp.float64)
+    work_ab_arr = _as_float_array(work_ab)
+    work_bc_arr = _as_float_array(work_bc)
 
-    weights_r = jnp.exp(-work_ab - free_energy_logmeanexp(work_ab))
-    return free_energy_bar(work_ab, work_bc, None, weights_r, uncertainty_method)
+    weights_r = np.exp(-work_ab_arr - free_energy_logmeanexp(work_ab_arr))
+    return free_energy_bar(work_ab_arr, work_bc_arr, None, weights_r, uncertainty_method)
 
 
-def free_energy_symmetric_nnznm(work_ab: ArrayLike, work_bc: ArrayLike) -> Array:
+def free_energy_symmetric_nnznm(work_ab: ArrayLike, work_bc: ArrayLike) -> float:
     """Free energy estimate for cyclic protocol.
 
     "Non equilibrium path-ensemble averages for symmetric protocols"
@@ -277,21 +297,21 @@ def free_energy_symmetric_nnznm(work_ab: ArrayLike, work_bc: ArrayLike) -> Array
     Returns:
         Estimate of the free energy
     """
-    work_ab = jnp.asarray(work_ab, dtype=jnp.float64)
-    work_bc = jnp.asarray(work_bc, dtype=jnp.float64)
+    work_ab_arr = _as_float_array(work_ab)
+    work_bc_arr = _as_float_array(work_bc)
 
     delta_fenegy = (
-        -jnp.log(2)
-        + free_energy_logmeanexp(-work_ab)
-        + jnp.log(1 + jnp.exp(-free_energy_logmeanexp(-work_ab - work_bc)))
+        -np.log(2)
+        + free_energy_logmeanexp(-work_ab_arr)
+        + np.log(1 + np.exp(-free_energy_logmeanexp(-work_ab_arr - work_bc_arr)))
     )
 
-    return delta_fenegy
+    return float(delta_fenegy)
 
 
 def free_energy_symmetric_bidirectional(
     work_ab: ArrayLike, work_bc: ArrayLike
-) -> Array:
+) -> float:
     """
     The bidirectional Minh-Chodera free energy estimate specialized to a symmetric
     protocol.
@@ -304,10 +324,11 @@ def free_energy_symmetric_bidirectional(
     Returns:
         Estimate of the free energy
     """
+    work_ab_arr = _as_float_array(work_ab)
+    work_bc_arr = _as_float_array(work_bc)
 
-    work_ab = jnp.asarray(work_ab, dtype=jnp.float64)
-    work_bc = jnp.asarray(work_bc, dtype=jnp.float64)
+    N = work_ab_arr.size
 
-    N = work_ab.size
-
-    return -(logsumexp(-work_ab + logexpit(-work_ab - work_bc)) - jnp.log(N / 2))
+    return float(
+        -(logsumexp(-work_ab_arr + logexpit(-work_ab_arr - work_bc_arr)) - np.log(N / 2))
+    )

@@ -5,6 +5,3 @@ uvicorn==0.30.1
 numpy==1.26.4
 scipy==1.11.4
 matplotlib==3.8.3
-jax==0.4.23
-jaxlib==0.4.23
-jaxopt==0.8.1

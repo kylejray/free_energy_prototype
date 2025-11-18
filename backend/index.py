@@ -8,6 +8,7 @@ try:  # asgiref>=3.8 removed AsgiToWsgi; fall back to raw ASGI app
 except ImportError:  # pragma: no cover - runtime guard
     AsgiToWsgi = None  # type: ignore
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -16,6 +17,15 @@ from .notebook_analysis import run_notebook_analysis
 from .sampler import normal_samples
 
 app = FastAPI(title="FastAPI on Vercel", version="0.2.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allow all origins for now, configure for production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 startup = datetime.now(timezone.utc)
 
 

@@ -48,8 +48,8 @@
 
 .toggle-btn:hover,
 .toggle-btn:focus-visible {
-  background: rgba(56, 189, 248, 0.25);
-  color: #0f172a;
+  background: rgba(148, 163, 184, 0.25);
+  color: #f8fafc;
 }
 
 .toggle-btn.active {
@@ -447,6 +447,51 @@ body {
   color: #94a3b8;
 }
 
+.markdown-content h2 {
+  font-size: 1.5rem;
+  margin-top: 0;
+  margin-bottom: 1rem;
+  color: #f8fafc;
+}
+
+.markdown-content p {
+  margin-bottom: 1rem;
+}
+
+.markdown-content p:last-child {
+  margin-bottom: 0;
+}
+
+.analysis-group-content {
+  display: grid;
+  grid-template-columns: 1fr 2fr;
+  gap: 2rem;
+  align-items: start;
+}
+
+.analysis-description {
+  font-size: 0.95rem;
+  color: #cbd5e1;
+  line-height: 1.6;
+  background: rgba(30, 41, 59, 0.3);
+  padding: 1.5rem;
+  border-radius: 1rem;
+  border: 1px solid rgba(148, 163, 184, 0.1);
+}
+
+.analysis-description h3 {
+  font-size: 1.25rem;
+  margin-top: 0;
+  margin-bottom: 1rem;
+  color: #f8fafc;
+}
+
+.analysis-visuals {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
 @media (max-width: 600px) {
   .app-shell {
     padding: 2rem;
@@ -454,5 +499,11 @@ body {
 
   .histogram {
     height: 180px;
+  }
+}
+
+@media (max-width: 1024px) {
+  .analysis-group-content {
+    grid-template-columns: 1fr;
   }
 }

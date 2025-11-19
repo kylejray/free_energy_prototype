@@ -48,6 +48,190 @@ def log_bimodal(x, std, mean):
     return result
 
 
+class ContinuousDist(sp.stats.rv_continuous):
+    """Augmented scipy.stats continuous distribution."""
+
+    def get_lims(self):
+        return getattr(self, "lims", [-np.inf, np.inf])
+
+    def set_pdf(self, pdf_func, lims=None):
+        if lims is None:
+            lims = self.get_lims()
+        self.norm = sp.integrate.quad(pdf_func, *lims)[0]
+        self.pdf_func = pdf_func
+        self._pdf = lambda y: self.pdf_func(y) / self.norm
+
+    def func_avg(self, kernel_lambda, lims=None):
+        if lims is None:
+            lims = self.get_lims()
+        return sp.integrate.quad(kernel_lambda, *lims)[0]
+
+    def get_min_eps(self, lims=None):
+        kernel = lambda x: np.tanh(x / 2) * self.pdf(x)
+        tanh_avg = self.func_avg(kernel, lims)
+        return (1 / tanh_avg) - 1
+
+    def mean(self, lims=None):
+        kernel = lambda x: x * self.pdf(x)
+        return self.func_avg(kernel, lims)
+
+    def var(self, lims=None):
+        mean = self.mean(lims)
+        kernel = lambda x: (x - mean) ** 2 * self.pdf(x)
+        return self.func_avg(kernel, lims)
+
+    def moment(self, k, lims=None):
+        mean = self.mean(lims)
+        kernel = lambda x: (x - mean) ** k * self.pdf(x)
+        return self.func_avg(kernel, lims)
+
+    def negexp_avg(self, lims=None):
+        kernel = lambda x: np.exp(-x) * self.pdf(x)
+        return self.func_avg(kernel, lims)
+
+    def negexp_avg_num(self, lims=None, resolution=10_000):
+        def negexp(x):
+            return np.exp(-x)
+
+        return self.func_avg_num(negexp, lims, resolution=resolution)
+
+    def func_avg_num(self, func, lims=None, resolution=10_000):
+        if lims is None:
+            lims = self.get_lims()
+        x = np.linspace(*lims, resolution)
+        pdf_x = [self.pdf(item) for item in x]
+        return np.trapz(func(x) * pdf_x, dx=x[1] - x[0])
+
+    def check_mean_num(self, lims, N=200_000):
+        if lims is None:
+            lims = self.get_lims()
+        x = np.linspace(*lims, N)
+        dx = x[1] - x[0]
+        pdf_x = [self.pdf(item) for item in x]
+        return dx * np.sum(x * pdf_x)
+
+    def check_mean_sample(self, N):
+        return np.mean(self.rvs(size=N))
+
+    def analytic_trimodal_bound(E):
+        return 2 * E * np.tanh(E / 2), (np.tanh(E) * np.tanh(E / 2)) ** -1 - 1
+
+    def trimodal_eps(sigma_list, npoints=1000):
+        ll = min(sigma_list)
+        ul = max(sigma_list)
+        if ll == ul:
+            ul += 0.5
+        avgs, bnd_list = ContinuousDist.analytic_trimodal_bound(np.linspace(0.1, ul, npoints))
+        return UnivariateSpline(avgs, bnd_list, k=1, s=0)
+
+
+class PiecewiseDist(ContinuousDist):
+    """
+    Optimized distribution for piecewise linear functions.
+    Performs analytic integration for norm, moments, and exponential averages.
+    """
+    def __init__(self, x_vals, pdf_vals):
+        super().__init__()
+        self.x_vals = np.asarray(x_vals)
+        self.pdf_vals = np.asarray(pdf_vals)
+        
+        # Pre-calculate slopes (m) and intercepts (c) for each segment
+        self.dx = np.diff(self.x_vals)
+        self.dy = np.diff(self.pdf_vals)
+        # Handle potential vertical segments safely
+        with np.errstate(divide='ignore', invalid='ignore'):
+            self.m = np.where(self.dx != 0, self.dy / self.dx, 0)
+        self.c = self.pdf_vals[:-1] - self.m * self.x_vals[:-1]
+        
+        # Trapezoidal norm (exact for piecewise linear)
+        self.norm = np.sum((self.pdf_vals[:-1] + self.pdf_vals[1:]) * 0.5 * self.dx)
+        
+        # Setup generic pdf for compatibility
+        self._pdf = lambda x: np.interp(x, self.x_vals, self.pdf_vals, left=0, right=0) / self.norm
+        
+        pad = max((self.x_vals[-1] - self.x_vals[0]) * 0.05, 1e-3)
+        self.lims = [self.x_vals[0] - pad, self.x_vals[-1] + pad]
+
+    def negexp_avg(self, lims=None):
+        """Analytic integral of (mx+c)*exp(-x) / norm"""
+        # Int (mx+c)e^-x dx = -e^-x(mx + c + m)
+        def anti_deriv(x, m, c):
+            return -np.exp(-x) * (m * x + c + m)
+            
+        integrals = anti_deriv(self.x_vals[1:], self.m, self.c) - \
+                    anti_deriv(self.x_vals[:-1], self.m, self.c)
+        
+        return np.sum(integrals) / self.norm
+
+    def mean(self, lims=None):
+        """Analytic mean: Int x(mx+c) dx"""
+        # Int x(mx+c) dx = m*x^3/3 + c*x^2/2
+        def anti_deriv(x, m, c):
+            return m * x**3 / 3.0 + c * x**2 / 2.0
+            
+        integrals = anti_deriv(self.x_vals[1:], self.m, self.c) - \
+                    anti_deriv(self.x_vals[:-1], self.m, self.c)
+        return np.sum(integrals) / self.norm
+
+    def var(self, lims=None):
+        """Analytic variance"""
+        mu = self.mean()
+        # Int x^2(mx+c) dx = m*x^4/4 + c*x^3/3
+        def anti_deriv_sq(x, m, c):
+            return m * x**4 / 4.0 + c * x**3 / 3.0
+            
+        integrals = anti_deriv_sq(self.x_vals[1:], self.m, self.c) - \
+                    anti_deriv_sq(self.x_vals[:-1], self.m, self.c)
+        
+        e_x2 = np.sum(integrals) / self.norm
+        return e_x2 - mu**2
+
+
+class PiecewiseReverseDist(ContinuousDist):
+    """
+    Optimized reverse distribution corresponding to a PiecewiseDist.
+    The form is P_R(y) ~ P_F(-y)*exp(y).
+    Since P_F is piecewise linear, P_R is piecewise (Ay+B)e^y.
+    """
+    def __init__(self, fwd_dist: PiecewiseDist, deltaF):
+        super().__init__()
+        self.fwd = fwd_dist
+        self.deltaF = deltaF
+        
+        # Analytic norm calculation
+        # P_R(y) = P_F(-y) * exp(y + deltaF)
+        # Segment i of Fwd (x_i to x_{i+1}) maps to y in [-x_{i+1}, -x_i]
+        # P_F(x) = m_i*x + c_i  -> P_F(-y) = -m_i*y + c_i
+        # Integrand: (-m_i*y + c_i) * exp(y + deltaF)
+        # Let A = -m_i * exp(deltaF), B = c_i * exp(deltaF)
+        # Int (Ay+B)e^y dy = e^y(Ay + B - A)
+        
+        exp_dF = np.exp(deltaF)
+        A = -self.fwd.m * exp_dF
+        B = self.fwd.c * exp_dF
+        
+        y_start = -self.fwd.x_vals[1:]
+        y_end = -self.fwd.x_vals[:-1]
+        
+        def anti_deriv(y, a, b):
+            return np.exp(y) * (a * y + b - a)
+            
+        integrals = anti_deriv(y_end, A, B) - anti_deriv(y_start, A, B)
+        self.norm = np.sum(integrals)
+        
+        # Reverse limits
+        self.lims = [-fwd_dist.lims[-1], -fwd_dist.lims[0]]
+        
+        # Generic PDF
+        self._pdf = lambda y: self._analytic_pdf(y) / self.norm
+
+    def _analytic_pdf(self, y):
+        x = -y
+        # Get raw unnormalized forward value
+        pf = np.interp(x, self.fwd.x_vals, self.fwd.pdf_vals, left=0, right=0)
+        return pf * np.exp(y + self.deltaF)
+
+
 def generate_dist(pdf_nonorm, args, kwargs):
     """Generate a ContinuousDist from an unnormalised pdf."""
     pdf = lambda x: pdf_nonorm(x, *args, **kwargs)
@@ -57,13 +241,7 @@ def generate_dist(pdf_nonorm, args, kwargs):
 
 
 def dist_from_piecewise_list(x_vals, pdf_vals):
-    norm = np.trapz(pdf_vals, x_vals)
-    dist = ContinuousDist()
-    dist.norm = norm
-    dist._pdf = lambda x: np.interp(x, x_vals, pdf_vals, left=0, right=0) / dist.norm
-    pad = max((x_vals[-1] - x_vals[0]) * 0.05, 1e-3)
-    dist.lims = [x_vals[0] - pad, x_vals[-1] + pad]
-    return dist
+    return PiecewiseDist(x_vals, pdf_vals)
 
 
 def reverse_pdf(x, fpdf, deltaF):
@@ -76,8 +254,12 @@ def reverse_pdf(x, fpdf, deltaF):
 
 
 def rdist_from_piecesise_dist(dist):
-    deltaF = -np.log(dist.negexp_avg())
+    if isinstance(dist, PiecewiseDist):
+        # Use analytic negexp_avg for precise deltaF
+        deltaF = -np.log(dist.negexp_avg())
+        return PiecewiseReverseDist(dist, deltaF)
 
+    deltaF = -np.log(dist.negexp_avg())
     rdist = ContinuousDist()
     rdist.norm = dist.norm
     rdist._pdf = lambda x: reverse_pdf(x, dist.pdf, deltaF)

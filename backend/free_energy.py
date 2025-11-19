@@ -56,9 +56,12 @@ def class_meta_f(class_work, probability_bools=None, beta=1, sample_error=True, 
 
     estimate = -logsumexp(-beta*class_work)+np.log(len(class_work))
 
+    if sample_error:
+        sample_var *= np.exp(estimate)**2
+
     if probability_bools is not None:
         tcft_mean, tcft_var = tcft_correction(*probability_bools)
-        sample_var = sample_var/np.exp(estimate)**2 + tcft_var
+        sample_var += tcft_var
         estimate += tcft_mean
         
     if sample_error:
@@ -130,7 +133,7 @@ def check_BAR_variance(final_W, reverse_final_W, forward_prob, reverse_prob, sam
         print("done {} samples out of {}".format(i, repetitions), end="\r")
     return metastable_f
 '''
-def variance_plot(samples, parameter = None, ax = None, z_score=1.96, asym=False):
+def variance_plot(samples, parameter = None, ax = None, z_score=1.96, asym=False, show_legend=True):
     # s is list of N [estimate, estimated_error]
     # ax is an ax to plot on
     # the actual values of the parameter, if None it will populate with [<s[0]>]
@@ -159,9 +162,10 @@ def variance_plot(samples, parameter = None, ax = None, z_score=1.96, asym=False
         title_string += f'symm:{(1+asym)/(1-asym):.3f}'
     ax.set_title(title_string)
     ax.errorbar(range(len(s)), s[:,0], yerr=s[:,1], linestyle='none', marker='o', ecolor=c, c='k')
-    ax.axhline(parameter, linestyle='--', c='k', zorder=10_000, label='true_avg')
+    ax.axhline(parameter, linestyle='--', c='k', zorder=10_000, label=r'true $\Delta F$')
     ax.axhline(s[:,0].mean(), linestyle='-', c='g', zorder=9_999, label='sampling_avg')
-    ax.legend()
+    if show_legend:
+        ax.legend()
     if return_ax:
         return ax
     else:

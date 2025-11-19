@@ -9,6 +9,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
+import scipy.integrate as integrate
 
 from .bimodal_dist import (
     HistDist,
@@ -58,6 +59,7 @@ def run_notebook_analysis(
     trials: int = 50,
     subset_size: int = 15,
 ) -> dict[str, object]:
+    plt.rcParams.update({'font.size': 18})
     if len(xp) != len(fp):
         raise ValueError("`xp` and `fp` must have the same length.")
     if len(xp) < 4:
@@ -89,6 +91,9 @@ def run_notebook_analysis(
     dist = dist_from_piecewise_list(xp_array, fp_array)
     r_dist = rdist_from_piecesise_dist(dist)
 
+    p_c, _ = integrate.quad(dist.pdf, ll, ul)
+    r_c_rev, _ = integrate.quad(r_dist.pdf, -ul, -ll)
+
     F = float(-np.log(dist.negexp_avg()))
 
     bins = np.linspace(dist.lims[0], dist.lims[-1], histogram_resolution)
@@ -119,12 +124,14 @@ def run_notebook_analysis(
         axes_top[1].set_title("PDFs of F and R")
         axes_top[1].plot(x_grid, [dist.pdf(val) for val in x_grid], label="F(x)", alpha=0.85)
         axes_top[1].plot(x_grid, [r_dist.pdf(val) for val in x_grid], label="R(x)", alpha=0.85)
-        axes_top[1].axvspan(ll, ul, color="tab:blue", alpha=0.3, label="C")
-        axes_top[1].axvspan(-ul, -ll, color="tab:orange", alpha=0.3, label="C^R")
+        axes_top[1].axvspan(ll, ul, color="tab:blue", alpha=0.3, label=r"$C$")
+        axes_top[1].axvspan(-ul, -ll, color="tab:orange", alpha=0.3, label=r"$C^\dagger$")
 
-        for axis in axes_top:
+        for i, axis in enumerate(axes_top):
             axis.axvline(F, color="k", alpha=0.75)
-            axis.legend(loc="upper right")
+            if i == 0:
+                axis.legend(loc="upper right")
+            axis.set_xlabel("x")
 
         sampling_top_image = _figure_to_base64(fig_top)
 
@@ -138,10 +145,12 @@ def run_notebook_analysis(
         axes_bottom[1].plot(-x_grid, [r_dist.pdf(val) for val in x_grid], label="R(-x)", linestyle="--", zorder=100)
         axes_bottom[1].set_yscale("log")
 
-        for axis in axes_bottom:
+        for i, axis in enumerate(axes_bottom):
             axis.axvspan(ll, ul, color="tab:grey", alpha=0.3)
             axis.axvline(F, color="k", alpha=0.75)
-            axis.legend(loc="upper right")
+            if i == 0:
+                axis.legend(loc="upper right")
+            axis.set_xlabel("x")
 
         sampling_bottom_image = _figure_to_base64(fig_bottom)
 
@@ -196,8 +205,8 @@ def run_notebook_analysis(
                 if np.sum(f_class) == 0 or np.sum(r_class) == 0:
                     continue
 
-                jar_full = class_meta_f(forward_draw_full[: 2 * subset_size])
-                jar_tc = class_meta_f(forward_subset[f_class])
+                jar_full = class_meta_f(forward_draw_full[: 2 * subset_size], sample_error=True)
+                jar_tc = class_meta_f(forward_subset[f_class], sample_error=True)
                 tcft_mean, tcft_var = tcft_correction(f_class, r_class)
                 jar_tc_corr = [jar_tc[0] + tcft_mean, np.sqrt(jar_tc[1] ** 2 + tcft_var)]
 
@@ -222,12 +231,12 @@ def run_notebook_analysis(
     if include_free_energy:
         datas = [BAR_TC, BAR_TC_CORR, BAR_FULL, JAR_TC, JAR_TC_CORR, JAR_FULL]
         labels = [
-            "BAR_TC",
-            "BAR_TC - log(P/R)",
-            "BAR Full",
-            "JAR_TC",
-            "JAR_TC - log(P/R)",
-            "JAR Full",
+            r"$\Delta F_{\text{BAR}}(C)$",
+            r"$\Delta F_{\text{BAR}}(C) - \ln(P/R)$",
+            r"$\Delta F_{\text{BAR}}$",
+            r"$\Delta F_{\text{JAR}}(C)$",
+            r"$\Delta F_{\text{JAR}}(C) - \ln(P/R)$",
+            r"$\Delta F_{\text{JAR}}$",
         ]
 
         z_score = 1.64
@@ -236,20 +245,22 @@ def run_notebook_analysis(
         fig_var_top, axes_var_top = plt.subplots(1, 3, figsize=(18, 5), sharex=True, sharey=True)
         fig_var_bottom, axes_var_bottom = plt.subplots(1, 3, figsize=(18, 5), sharex=True, sharey=True)
 
-        for (data, label, axis) in zip(datas[:3], labels[:3], axes_var_top):
+        for i, (data, label, axis) in enumerate(zip(datas[:3], labels[:3], axes_var_top)):
             if not data:
                 axis.set_visible(False)
                 continue
-            variance_plot(data, ax=axis, parameter=F, z_score=z_score)
+            variance_plot(data, ax=axis, parameter=F, z_score=z_score, show_legend=(i == 0))
             axis.set_ylabel(label)
+            axis.set_xlabel("trial number")
             axis.set_ylim(old_ylim_lower, old_ylim_upper)
 
-        for (data, label, axis) in zip(datas[3:], labels[3:], axes_var_bottom):
+        for i, (data, label, axis) in enumerate(zip(datas[3:], labels[3:], axes_var_bottom)):
             if not data:
                 axis.set_visible(False)
                 continue
-            variance_plot(data, ax=axis, parameter=F, z_score=z_score)
+            variance_plot(data, ax=axis, parameter=F, z_score=z_score, show_legend=(i == 0))
             axis.set_ylabel(label)
+            axis.set_xlabel("trial number")
             axis.set_ylim(old_ylim_lower, old_ylim_upper)
 
         free_energy_top_image = _figure_to_base64(fig_var_top)
@@ -270,13 +281,14 @@ def run_notebook_analysis(
             )
 
             axes_iter = np.atleast_1d(axes_standard).flatten()
-            for axis, method in zip(axes_iter, bar_methods):
+            for i, (axis, method) in enumerate(zip(axes_iter, bar_methods)):
                 data = standard_bar_results[method]
                 if not data:
                     axis.set_visible(False)
                     continue
-                variance_plot(data, ax=axis, parameter=F, z_score=z_score)
-                axis.set_ylabel(f"BAR ({method} error)")
+                variance_plot(data, ax=axis, parameter=F, z_score=z_score, show_legend=(i == 0))
+                axis.set_ylabel(rf"$\Delta F_{{\text{{BAR}}}}$ ({method} error)")
+                axis.set_xlabel("trial number")
                 axis.set_ylim(standard_ylim_lower, standard_ylim_upper)
 
             free_energy_standard_image = _figure_to_base64(fig_standard)
@@ -286,6 +298,8 @@ def run_notebook_analysis(
         "sample_size": float(sample_size),
         "trials": float(trials),
         "subset_size": float(subset_size),
+        "p_c": p_c,
+        "r_c_rev": r_c_rev,
     }
 
     return {

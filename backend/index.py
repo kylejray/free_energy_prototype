@@ -87,7 +87,7 @@ class NotebookResponse(BaseModel):
 async def health_check() -> dict[str, object]:
     uptime = datetime.now(timezone.utc) - startup
     return {
-        "message": "FastAPI serverless function is running",
+        "message": "FastAPI backend is running",
         "uptime_seconds": round(uptime.total_seconds(), 2),
     }
 

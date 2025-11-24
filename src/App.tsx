@@ -64,15 +64,15 @@ const FREE_ENERGY_DESCRIPTION = `
 ### Free Energy Estimation
 
 This section compares different estimators for the free energy difference $\\Delta F$. We compare the standard Jarzynski and BAR estimators against their "Trajectory Class" counterparts.
-
+"BAR" estimators have acess to $N/2$ samples from both the forward and reverse processes, while "JAR" estimators have access to $N$ samples from only the forward process. 
 The Trajectory Class estimators use only a subset of trajectories $C$ (defined by the bounds above) and apply the correction:
 
 $$
-\\beta \\Delta F = \\widehat{\\Delta F}(C) - \\ln \\frac{R(C)}{P(C)}
+\\beta \\Delta F = \\widehat{\\Delta F}(C) - \\ln \\frac{P(C)}{R(C)}
 $$
 
-*   **Top Row**: BAR-based estimators. Variance estimates use the MBAR method
-*   **Bottom Row**: Jarzynski-based estimators. Variance estimators naively take the sample's variance / sqrt(N)
+*   **Top Row**: BAR-based estimators, $\\widehat{\\Delta F} = \\Delta F_{\\text{BAR}}$. Variance estimates use the MBAR method
+*   **Bottom Row**: Jarzynski-based estimators, $\\widehat{\\Delta F} = \\Delta F_{\\text{JAR}}$. Variance estimators naively take the sample's variance / sqrt(N)
  and propagate it through the logarithm. This is generically not a principled way to estimate the variance of an exponential estimator.
  We use this heuristic to see if/when it can be helpful for certain trajectory classes.
 *   **Left**: Uncorrected estimator on class $C$. Note that these methods only have access to work values within the class.
@@ -80,7 +80,7 @@ The Jarzynski method is only given the subset of samples that are within the cla
 The BAR method is given also the subset of samples that are within $C^{\\dagger}$ in the reverse process.
 *   **Middle**: Corrected estimator (TCFT). 
 The probabilities are estimated directly from a binary coarse graining on the sampled data based on if the values fall within the class or not. This introduces the additional variance in according to standard methods of estimating sample proportions. 
-This is the worse case scenario, since analytics or others methods might often be able to calculate the exact probabilities.
+This is the worse case scenario, since analytics or others methods might often be able to calculate the exact probabilities. In all cases, the estimator is based off of $N/2$ samples from each process.
 *   **Right**: Full estimator using all data.
 `;
 

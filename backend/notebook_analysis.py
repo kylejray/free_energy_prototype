@@ -58,6 +58,7 @@ def run_notebook_analysis(
     sample_size: int = 25_000,
     trials: int = 50,
     subset_size: int = 15,
+    z_score: float = 1.96,
 ) -> dict[str, object]:
     plt.rcParams.update({'font.size': 18})
     if len(xp) != len(fp):
@@ -165,26 +166,32 @@ def run_notebook_analysis(
     standard_bar_results: dict[str, list[list[float]]] = {method: [] for method in bar_methods}
 
     if include_free_energy or include_standard:
-        forward_sample_count = 2 * subset_size if include_free_energy else subset_size
+        # Constant effort: Total samples = subset_size
+        # JAR: subset_size forward samples
+        # BAR: subset_size/2 forward + subset_size/2 reverse samples
+        n_total = subset_size
+        n_half = max(1, n_total // 2)
 
         for _ in range(trials):
-            forward_draw_full = hdist.rejection_sample(forward_sample_count)
-            reverse_draw_subset = r_hdist.rejection_sample(subset_size)
+            forward_draw_full = hdist.rejection_sample(n_total)
+            reverse_draw_subset = r_hdist.rejection_sample(n_half)
 
             if (
-                forward_draw_full.size < forward_sample_count
-                or reverse_draw_subset.size < subset_size
+                forward_draw_full.size < n_total
+                or reverse_draw_subset.size < n_half
             ):
                 continue
 
-            forward_subset = forward_draw_full[:subset_size]
+            # BAR subsets (N/2 each)
+            forward_subset_bar = forward_draw_full[:n_half]
+            reverse_subset_bar = reverse_draw_subset[:n_half]
 
             if include_standard:
                 for method in bar_methods:
                     try:
                         estimate, error = free_energy_bar(
-                            forward_subset,
-                            reverse_draw_subset,
+                            forward_subset_bar,
+                            reverse_subset_bar,
                             uncertainty_method=method,
                         )
                     except Exception:  # pragma: no cover - defensive guard against numerical issues
@@ -196,24 +203,29 @@ def run_notebook_analysis(
                         standard_bar_results[method].append([estimate_f, error_f])
 
             if include_free_energy:
-                if forward_draw_full.size < 2 * subset_size:
+                # JAR uses full forward dataset (N)
+                f_class_jar = (forward_draw_full > ll) & (forward_draw_full < ul)
+                
+                # BAR uses split datasets (N/2 each)
+                f_class_bar = (forward_subset_bar > ll) & (forward_subset_bar < ul)
+                r_class_bar = (reverse_subset_bar < -ll) & (reverse_subset_bar > -ul)
+
+                if np.sum(f_class_jar) == 0 or np.sum(f_class_bar) == 0 or np.sum(r_class_bar) == 0:
                     continue
 
-                f_class = (forward_subset > ll) & (forward_subset < ul)
-                r_class = (reverse_draw_subset < -ll) & (reverse_draw_subset > -ul)
-
-                if np.sum(f_class) == 0 or np.sum(r_class) == 0:
-                    continue
-
-                jar_full = class_meta_f(forward_draw_full[: 2 * subset_size], sample_error=True)
-                jar_tc = class_meta_f(forward_subset[f_class], sample_error=True)
-                tcft_mean, tcft_var = tcft_correction(f_class, r_class)
+                # Jarzynski Estimates (N samples)
+                jar_full = class_meta_f(forward_draw_full, sample_error=True)
+                jar_tc = class_meta_f(forward_draw_full[f_class_jar], sample_error=True)
+                
+                # Correction term (using BAR split data for consistency)
+                tcft_mean, tcft_var = tcft_correction(f_class_bar, r_class_bar)
                 jar_tc_corr = [jar_tc[0] + tcft_mean, np.sqrt(jar_tc[1] ** 2 + tcft_var)]
 
-                bar_full = free_energy_bar(forward_subset, reverse_draw_subset)
+                # BAR Estimates (N/2 + N/2 samples)
+                bar_full = free_energy_bar(forward_subset_bar, reverse_subset_bar)
                 bar_tc = free_energy_bar(
-                    forward_subset[f_class],
-                    reverse_draw_subset[r_class],
+                    forward_subset_bar[f_class_bar],
+                    reverse_subset_bar[r_class_bar],
                     uncertainty_method="MBAR",
                 )
                 bar_tc_corr = [
@@ -239,7 +251,6 @@ def run_notebook_analysis(
             r"$\Delta F_{\text{JAR}}$",
         ]
 
-        z_score = 1.64
         old_ylim_lower, old_ylim_upper = _free_energy_limits(datas, F)
 
         fig_var_top, axes_var_top = plt.subplots(1, 3, figsize=(18, 5), sharex=True, sharey=True)
@@ -269,7 +280,6 @@ def run_notebook_analysis(
     if include_standard:
         standard_datasets = list(standard_bar_results.values())
         if any(len(data) > 0 for data in standard_datasets):
-            z_score = 1.64
             standard_ylim_lower, standard_ylim_upper = _free_energy_limits(standard_datasets, F)
 
             fig_standard, axes_standard = plt.subplots(

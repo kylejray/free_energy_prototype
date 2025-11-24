@@ -38,6 +38,7 @@ export interface NotebookRequestPayload {
   section?: 'sampling' | 'free_energy' | 'standard' | 'all';
   sampleSize?: number;
   trials?: number;
+  zScore?: number;
 }
 
 interface NotebookResponseRaw {
@@ -128,7 +129,8 @@ export async function runNotebookAnalysis(
     ul: payload.ul,
     section: payload.section,
     sample_size: payload.sampleSize,
-    trials: payload.trials
+    trials: payload.trials,
+    z_score: payload.zScore
   };
 
   if (bodyPayload.sample_size === undefined) {
@@ -136,6 +138,9 @@ export async function runNotebookAnalysis(
   }
   if (bodyPayload.trials === undefined) {
     delete bodyPayload.trials;
+  }
+  if (bodyPayload.z_score === undefined) {
+    delete bodyPayload.z_score;
   }
 
   const response = await request<NotebookResponseRaw>('/analysis', {

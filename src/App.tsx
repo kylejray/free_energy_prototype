@@ -76,8 +76,8 @@ $$
  and propagate it through the logarithm. This is generically not a principled way to estimate the variance of an exponential estimator.
  We use this heuristic to see if/when it can be helpful for certain trajectory classes.
 *   **Left**: Uncorrected estimator on class $C$. Note that these methods only have access to work values within the class.
-* The Jarzynski method is only given the subset of samples that are within the class in the forward process.
-* The BAR method is given also the subset of samples that are within $C^{\\dagger}$ in the reverse process.
+The Jarzynski method is only given the subset of samples that are within the class in the forward process.
+The BAR method is given also the subset of samples that are within $C^{\\dagger}$ in the reverse process.
 *   **Middle**: Corrected estimator (TCFT). 
 The probabilities are estimated directly from a binary coarse graining on the sampled data based on if the values fall within the class or not. This introduces the additional variance in according to standard methods of estimating sample proportions. 
 This is the worse case scenario, since analytics or others methods might often be able to calculate the exact probabilities.
@@ -134,14 +134,14 @@ const ANALYSIS_PRESETS: AnalysisPreset[] = [
   }
 ];
 
-const DEFAULT_ANALYSIS_SAMPLE_SIZE = 25;
+const DEFAULT_ANALYSIS_SAMPLE_SIZE = 30;
 const DEFAULT_ANALYSIS_TRIALS = 50;
 const DEFAULT_SAMPLING_SAMPLE_SIZE = 5000;
 
 const ANALYSIS_SAMPLE_SIZE_RANGE: NumericRange = {
-  min: 5,
-  max: 1_000,
-  step: 5
+  min: 2,
+  max: 100,
+  step: 2
 };
 
 const SAMPLING_SAMPLE_SIZE_RANGE: NumericRange = {
@@ -183,6 +183,7 @@ function App() {
     DEFAULT_SAMPLING_SAMPLE_SIZE
   );
   const [analysisTrials, setAnalysisTrials] = useState<number>(DEFAULT_ANALYSIS_TRIALS);
+  const [zScore, setZScore] = useState<number>(1.96);
   const [analysisLoading, setAnalysisLoading] = useState<boolean>(false);
   const [analysisError, setAnalysisError] = useState<string>('');
   const [analysisResult, setAnalysisResult] = useState<NotebookResultState | null>(null);
@@ -294,7 +295,8 @@ function App() {
         ul: upper,
         section,
         sampleSize: sanitizedCurrentSampleSize,
-        trials: sanitizedTrials
+        trials: sanitizedTrials,
+        zScore
       };
       const result = await runNotebookAnalysis(payload);
       setAnalysisResult((previous) => {
@@ -382,91 +384,6 @@ function App() {
                 <span>LL: {analysisBounds.lower.toFixed(2)}</span>
                 <span>UL: {analysisBounds.upper.toFixed(2)}</span>
               </div>
-              <div className="analysis-parameters" role="group" aria-label="analysis parameters">
-                <label className="analysis-parameter" htmlFor="sampling-sample-size">
-                  <div className="parameter-header">
-                    <span>Histogram Samples</span>
-                    <span>{samplingSampleSize.toLocaleString()}</span>
-                  </div>
-                  <input
-                    id="sampling-sample-size"
-                    type="range"
-                    min={SAMPLING_SAMPLE_SIZE_RANGE.min}
-                    max={SAMPLING_SAMPLE_SIZE_RANGE.max}
-                    step={SAMPLING_SAMPLE_SIZE_RANGE.step}
-                    value={samplingSampleSize}
-                    onChange={handleSamplingSampleSizeChange}
-                    disabled={analysisLoading}
-                  />
-                </label>
-                <label className="analysis-parameter" htmlFor="analysis-sample-size">
-                  <div className="parameter-header">
-                    <span>Estimator Samples</span>
-                    <span>{analysisSampleSize.toLocaleString()}</span>
-                  </div>
-                  <input
-                    id="analysis-sample-size"
-                    type="range"
-                    min={ANALYSIS_SAMPLE_SIZE_RANGE.min}
-                    max={ANALYSIS_SAMPLE_SIZE_RANGE.max}
-                    step={ANALYSIS_SAMPLE_SIZE_RANGE.step}
-                    value={analysisSampleSize}
-                    onChange={handleAnalysisSampleSizeChange}
-                    disabled={analysisLoading}
-                  />
-                </label>
-                <label className="analysis-parameter" htmlFor="analysis-trials">
-                  <div className="parameter-header">
-                    <span>Trials</span>
-                    <span>{analysisTrials}</span>
-                  </div>
-                  <input
-                    id="analysis-trials"
-                    type="range"
-                    min={ANALYSIS_TRIALS_RANGE.min}
-                    max={ANALYSIS_TRIALS_RANGE.max}
-                    step={ANALYSIS_TRIALS_RANGE.step}
-                    value={analysisTrials}
-                    onChange={handleAnalysisTrialsChange}
-                    disabled={analysisLoading}
-                  />
-                </label>
-              </div>
-              <div className="analysis-actions">
-                <button
-                  type="button"
-                  className="cta"
-                  onClick={() => handleAnalysisSubmit('sampling')}
-                  disabled={analysisLoading}
-                  aria-pressed={activeAnalysisSection === 'sampling'}
-                >
-                  {analysisLoading && activeAnalysisSection === 'sampling'
-                    ? 'Generating…'
-                    : 'Generate Sampling Diagnostics'}
-                </button>
-                <button
-                  type="button"
-                  className="cta"
-                  onClick={() => handleAnalysisSubmit('free_energy')}
-                  disabled={analysisLoading}
-                  aria-pressed={activeAnalysisSection === 'free_energy'}
-                >
-                  {analysisLoading && activeAnalysisSection === 'free_energy'
-                    ? 'Generating…'
-                    : 'Generate Trajectory Class Estimates'}
-                </button>
-                <button
-                  type="button"
-                  className="cta"
-                  onClick={() => handleAnalysisSubmit('standard')}
-                  disabled={analysisLoading}
-                  aria-pressed={activeAnalysisSection === 'standard'}
-                >
-                  {analysisLoading && activeAnalysisSection === 'standard'
-                    ? 'Generating…'
-                    : 'Generate Variance Diagnostics'}
-                </button>
-              </div>
             </div>
           </div>
 
@@ -474,15 +391,50 @@ function App() {
 
           <div className="analysis-groups">
             <section className="analysis-group">
-              <div className="analysis-group-content">
-                <div className="analysis-description markdown-content">
-                  <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
-                    {SAMPLING_DESCRIPTION}
-                  </ReactMarkdown>
+              <div className="analysis-group-content" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem', alignItems: 'start' }}>
+                <div className="analysis-left-column">
+                  <div className="analysis-controls-inline" style={{ display: 'flex', gap: '1rem', alignItems: 'flex-end', marginBottom: '1.5rem', padding: '1rem', backgroundColor: '#1e293b', borderRadius: '0.5rem', border: '1px solid #334155' }}>
+                      <label className="analysis-parameter" htmlFor="sampling-sample-size" style={{ flex: 1, marginBottom: 0 }}>
+                        <div className="parameter-header">
+                          <span>Histogram Samples</span>
+                          <span>{samplingSampleSize.toLocaleString()}</span>
+                        </div>
+                        <input
+                          id="sampling-sample-size"
+                          type="range"
+                          min={SAMPLING_SAMPLE_SIZE_RANGE.min}
+                          max={SAMPLING_SAMPLE_SIZE_RANGE.max}
+                          step={SAMPLING_SAMPLE_SIZE_RANGE.step}
+                          value={samplingSampleSize}
+                          onChange={handleSamplingSampleSizeChange}
+                          disabled={analysisLoading}
+                          style={{ width: '100%' }}
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        className="cta"
+                        onClick={() => handleAnalysisSubmit('sampling')}
+                        disabled={analysisLoading}
+                        aria-pressed={activeAnalysisSection === 'sampling'}
+                        style={{ whiteSpace: 'nowrap' }}
+                      >
+                        {analysisLoading && activeAnalysisSection === 'sampling'
+                          ? 'Generating…'
+                          : 'Generate'}
+                      </button>
+                  </div>
+
+                  <div className="analysis-description markdown-content">
+                    <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
+                      {SAMPLING_DESCRIPTION}
+                    </ReactMarkdown>
+                  </div>
                 </div>
-                <div className="analysis-visuals">
+
+                <div className="analysis-visuals" style={{ marginTop: 0 }}>
                   {analysisResult?.metadata && (analysisResult.metadata.p_c !== undefined) ? (
-                    <p style={{ marginTop: '0rem', marginBottom: '1rem', color: '#94a3b8', fontSize: '0.95rem', lineHeight: '1.6' }}>
+                    <p style={{ marginTop: '0rem', marginBottom: '1rem', color: '#94a3b8', fontSize: '1rem', lineHeight: '1.6' }}>
                       The forward class represents <strong style={{ color: '#e2e8f0' }}>{(Number(analysisResult.metadata.p_c) * 100).toFixed(2)}%</strong> of 
                       trajectories in the forward process, and the reverse class represents <strong style={{ color: '#e2e8f0' }}>{(Number(analysisResult.metadata.r_c_rev) * 100).toFixed(2)}%</strong> of 
                       the trajectories in the reverse process.
@@ -519,13 +471,98 @@ function App() {
             </section>
 
             <section className="analysis-group">
-              <div className="analysis-group-content">
-                <div className="analysis-description markdown-content">
-                  <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
-                    {FREE_ENERGY_DESCRIPTION}
-                  </ReactMarkdown>
+              <div className="analysis-group-content" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem', alignItems: 'start' }}>
+                <div className="analysis-left-column">
+                  <div className="analysis-controls-inline" style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '1.5rem', padding: '1rem', backgroundColor: '#1e293b', borderRadius: '0.5rem', border: '1px solid #334155' }}>
+                    <div style={{ display: 'flex', gap: '1rem', width: '100%' }}>
+                      <label className="analysis-parameter" htmlFor="analysis-sample-size" style={{ flex: 1, marginBottom: 0 }}>
+                        <div className="parameter-header">
+                          <span>Estimator Samples</span>
+                          <span>{analysisSampleSize.toLocaleString()}</span>
+                        </div>
+                        <input
+                          id="analysis-sample-size"
+                          type="range"
+                          min={ANALYSIS_SAMPLE_SIZE_RANGE.min}
+                          max={ANALYSIS_SAMPLE_SIZE_RANGE.max}
+                          step={ANALYSIS_SAMPLE_SIZE_RANGE.step}
+                          value={analysisSampleSize}
+                          onChange={handleAnalysisSampleSizeChange}
+                          disabled={analysisLoading}
+                          style={{ width: '100%' }}
+                        />
+                      </label>
+                      <label className="analysis-parameter" htmlFor="analysis-trials" style={{ flex: 1, marginBottom: 0 }}>
+                        <div className="parameter-header">
+                          <span>Trials</span>
+                          <span>{analysisTrials}</span>
+                        </div>
+                        <input
+                          id="analysis-trials"
+                          type="range"
+                          min={ANALYSIS_TRIALS_RANGE.min}
+                          max={ANALYSIS_TRIALS_RANGE.max}
+                          step={ANALYSIS_TRIALS_RANGE.step}
+                          value={analysisTrials}
+                          onChange={handleAnalysisTrialsChange}
+                          disabled={analysisLoading}
+                          style={{ width: '100%' }}
+                        />
+                      </label>
+                    </div>
+                    <div style={{ display: 'flex', gap: '1rem', width: '100%', alignItems: 'flex-end' }}>
+                      <label className="analysis-parameter" htmlFor="z-score" style={{ flex: 1, marginBottom: 0 }}>
+                        <div className="parameter-header">
+                          <span>Confidence Level</span>
+                          <span>{zScore === 1.64 ? '90%' : zScore === 1.96 ? '95%' : zScore === 2.58 ? '99%' : 'Custom'}</span>
+                        </div>
+                        <select
+                          id="z-score"
+                          value={zScore}
+                          onChange={(e) => setZScore(Number(e.target.value))}
+                          disabled={analysisLoading}
+                          style={{ width: '100%', padding: '0.5rem', borderRadius: '0.25rem', background: '#334155', color: 'white', border: '1px solid #475569' }}
+                        >
+                          <option value={1.64}>90% (Z=1.64)</option>
+                          <option value={1.96}>95% (Z=1.96)</option>
+                          <option value={2.58}>99% (Z=2.58)</option>
+                        </select>
+                      </label>
+                      <button
+                        type="button"
+                        className="cta"
+                        onClick={() => handleAnalysisSubmit('free_energy')}
+                        disabled={analysisLoading}
+                        aria-pressed={activeAnalysisSection === 'free_energy'}
+                        style={{ whiteSpace: 'nowrap' }}
+                      >
+                        {analysisLoading && activeAnalysisSection === 'free_energy'
+                          ? 'Generating…'
+                          : 'Generate Estimates'}
+                      </button>
+                      <button
+                        type="button"
+                        className="cta"
+                        onClick={() => handleAnalysisSubmit('standard')}
+                        disabled={analysisLoading}
+                        aria-pressed={activeAnalysisSection === 'standard'}
+                        style={{ whiteSpace: 'nowrap' }}
+                      >
+                        {analysisLoading && activeAnalysisSection === 'standard'
+                          ? 'Generating…'
+                          : 'BAR Variance'}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="analysis-description markdown-content">
+                    <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
+                      {FREE_ENERGY_DESCRIPTION}
+                    </ReactMarkdown>
+                  </div>
                 </div>
-                <div className="analysis-visuals">
+
+                <div className="analysis-visuals" style={{ marginTop: 0 }}>
                   {analysisResult?.freeEnergyTopPlot ||
                     analysisResult?.freeEnergyBottomPlot ||
                     analysisResult?.freeEnergyStandardPlot ? (

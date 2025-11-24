@@ -156,7 +156,7 @@ def variance_plot(samples, parameter = None, ax = None, z_score=1.96, asym=False
     fail = ~((s[:,0]-s[:,1] <= parameter) & (parameter <= s[:,0]+s[:,1] ))
     
     c = np.array([ colors[1] if f else colors[0] for f in fail ])
-    title_string = f'CI fail:{sum(fail)/len(fail):.1%}; expected {confidence:.1%}'
+    title_string = f'CI fail:{sum(fail)/len(fail):.1%}'
     if asym:
         asym = np.sum(np.sign(s[:,0]-parameter))/len(s)
         title_string += f'symm:{(1+asym)/(1-asym):.3f}'

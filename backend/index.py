@@ -70,6 +70,12 @@ class NotebookRequest(BaseModel):
         le=500,
         description="Optional trial count override for analysis runs",
     )
+    z_score: float | None = Field(
+        default=1.96,
+        ge=1.0,
+        le=5.0,
+        description="Z-score for confidence intervals (e.g., 1.64 for 90%, 1.96 for 95%)",
+    )
 
 
 class NotebookResponse(BaseModel):
@@ -124,6 +130,8 @@ async def run_notebook(payload: NotebookRequest) -> NotebookResponse:
             kwargs["sample_size"] = payload.sample_size
         if payload.trials is not None:
             kwargs["trials"] = payload.trials
+        if payload.z_score is not None:
+            kwargs["z_score"] = payload.z_score
 
         result = run_notebook_analysis(
             payload.xp,

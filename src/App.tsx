@@ -73,9 +73,9 @@ $$
 
 *   **Top Row**: BAR-based estimators. Variance estimates use the MBAR method
 *   **Bottom Row**: Jarzynski-based estimators. Variance estimators naively take the sample's variance / sqrt(N)
- and propagate it through the logarithm. This is generically not a principled way to estimate the variance of an exponential esitmator.
- We use this heuristic to see if/when it can be helpful for certain trajecotry classes.
-*   **Left**: Uncorrected estimator on class $C$. Note that these methods only have acess to work values within the class.
+ and propagate it through the logarithm. This is generically not a principled way to estimate the variance of an exponential estimator.
+ We use this heuristic to see if/when it can be helpful for certain trajectory classes.
+*   **Left**: Uncorrected estimator on class $C$. Note that these methods only have access to work values within the class.
 * The Jarzynski method is only given the subset of samples that are within the class in the forward process.
 * The BAR method is given also the subset of samples that are within $C^{\\dagger}$ in the reverse process.
 *   **Middle**: Corrected estimator (TCFT). 

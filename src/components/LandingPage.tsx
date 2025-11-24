@@ -21,17 +21,17 @@ trajectories $C$ satisfies:
 $$
 \\langle e^{-\\Sigma} \\rangle_C = \\frac{R(C)}{P(C)}
 $$
-Where the average is a conditional average among the trajecotries in $C$, $\\Sigma$ is the entropy production associted with the trajecotry,
+Where the average is a conditional average among the trajectories in $C$, $\\Sigma$ is the entropy production associted with the trajectory,
 $P(C)$ is the probability of observing  a trajectory in class $C$ during the forward process, and $R(C)$ is the
 probability of observing the a trajectory in  the "reversed class" $C^\\dagger$ during the reverse process.
-Under some typical asssumptions, trajecotries in all classes will have an entropy production that can be written as $\\Sigma = \\beta (W - \\Delta F)$, leading
+Under some typical asssumptions, trajectories in all classes will have an entropy production that can be written as $\\Sigma = \\beta (W - \\Delta F)$, leading
 to a somewhat familiar form of the equation:
 
 $$
 \\ln \\langle e^{-\\beta W} \\rangle_C = -\\beta \\Delta F + \\ln \\frac{R(C)}{P(C)}
 $$
 And, it is from this equation that we find a remarkable insight into free energy estimation.
-The equation above is true for *any* class of trajectories $C$. This means that, for example-- we could use the work value of only a single trajecotry
+The equation above is true for *any* class of trajectories $C$. This means that, for example-- we could use the work value of only a single trajectory
 to come up with an estimate of the free energy difference, provided we correctly conpensate via the term $\\ln \\frac{R(C)}{P(C)}$.
 A more practical solution would be to find classes of trajectories that are particularly well-suited
 for estimating free energy differences-- for example, those that have a high probability of observing

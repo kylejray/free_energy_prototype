@@ -40,11 +40,13 @@ type NumericRange = {
   step: number;
 };
 
-const SAMPLING_DESCRIPTION = `
+const SAMPLING_SUMMARY = `
 ### Sampling Diagnostics
 
-Here we visualize the forward and reverse work distributions. The forward distribution $P_F(W)$ is defined by the control points above. The reverse distribution $P_R(W)$ is derived using the Crooks Fluctuation Theorem:
+Here we visualize the forward and reverse work distributions. The forward distribution $P_F(W)$ is defined by the control points above. The reverse distribution $P_R(W)$ is derived using the Crooks Fluctuation Theorem.
+`;
 
+const SAMPLING_DETAILS = `
 $$
 \\frac{P_F(W)}{P_R(-W)} = e^{\\beta(W - \\Delta F)}
 $$
@@ -60,10 +62,13 @@ those in the reverse class are highlighted in orange. Overlaps are given by a gr
 4.  **Log Scale**: Useful for inspecting the tails where rare events occur.
 `;
 
-const FREE_ENERGY_DESCRIPTION = `
+const FREE_ENERGY_SUMMARY = `
 ### Free Energy Estimation
 
 This section compares different estimators for the free energy difference $\\Delta F$. We compare the standard Jarzynski and BAR estimators against their "Trajectory Class" counterparts.
+`;
+
+const FREE_ENERGY_DETAILS = `
 "BAR" estimators have acess to $N/2$ samples from both the forward and reverse processes, while "JAR" estimators have access to $N$ samples from only the forward process. 
 The Trajectory Class estimators use only a subset of trajectories $C$ (defined by the bounds above) and apply the correction:
 
@@ -80,7 +85,7 @@ The Jarzynski method is only given the subset of samples that are within the cla
 The BAR method is given also the subset of samples that are within $C^{\\dagger}$ in the reverse process.
 *   **Middle**: Corrected estimator (TCFT). 
 The probabilities are estimated directly from a binary coarse graining on the sampled data based on if the values fall within the class or not. This introduces the additional variance in according to standard methods of estimating sample proportions. 
-This is the worse case scenario, since analytics or others methods might often be able to calculate the exact probabilities. In all cases, the estimator is based off of $N/2$ samples from each process.
+This is the worse case scenario, since analytics or others methods might often be able to calculate the exact probabilities. In all cases, the variance is based off of $N/2$ samples from each process.
 *   **Right**: Full estimator using all data.
 `;
 
@@ -164,6 +169,43 @@ const clampWithStep = (value: number, range: NumericRange): number => {
   }
   const steps = Math.round((bounded - min) / step);
   return min + steps * step;
+};
+
+const ExpandableDescription = ({ summary, details }: { summary: string; details: string }) => {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <div className="analysis-description markdown-content">
+      <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
+        {summary}
+      </ReactMarkdown>
+      {expanded && (
+        <div style={{ marginTop: '1rem' }}>
+          <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
+            {details}
+          </ReactMarkdown>
+        </div>
+      )}
+      <button 
+        onClick={() => setExpanded(!expanded)}
+        style={{
+          background: 'none',
+          border: 'none',
+          color: '#38bdf8',
+          cursor: 'pointer',
+          padding: '0.5rem 0',
+          fontSize: '0.9rem',
+          fontWeight: 600,
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.5rem',
+          marginTop: '0.5rem'
+        }}
+      >
+        {expanded ? 'Show Less' : 'Show More'}
+      </button>
+    </div>
+  );
 };
 
 function App() {
@@ -425,11 +467,7 @@ function App() {
                       </button>
                   </div>
 
-                  <div className="analysis-description markdown-content">
-                    <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
-                      {SAMPLING_DESCRIPTION}
-                    </ReactMarkdown>
-                  </div>
+                  <ExpandableDescription summary={SAMPLING_SUMMARY} details={SAMPLING_DETAILS} />
                 </div>
 
                 <div className="analysis-visuals" style={{ marginTop: 0 }}>
@@ -555,11 +593,7 @@ function App() {
                     </div>
                   </div>
 
-                  <div className="analysis-description markdown-content">
-                    <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
-                      {FREE_ENERGY_DESCRIPTION}
-                    </ReactMarkdown>
-                  </div>
+                  <ExpandableDescription summary={FREE_ENERGY_SUMMARY} details={FREE_ENERGY_DETAILS} />
                 </div>
 
                 <div className="analysis-visuals" style={{ marginTop: 0 }}>

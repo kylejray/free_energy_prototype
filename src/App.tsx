@@ -19,7 +19,7 @@ type NotebookResultState = {
   freeEnergyTopPlot: string | null;
   freeEnergyBottomPlot: string | null;
   freeEnergyStandardPlot: string | null;
-  metadata: Record<string, number> | null;
+  metadata: Record<string, any> | null;
 };
 
 type Bounds = {
@@ -43,13 +43,14 @@ type NumericRange = {
 const SAMPLING_SUMMARY = `
 ### Sampling Diagnostics
 
-Here we visualize the forward and reverse work distributions. The forward distribution $P_F(W)$ is defined by the control points above. The reverse distribution $P_R(W)$ is derived using the Crooks Fluctuation Theorem.
-`;
-
-const SAMPLING_DETAILS = `
+Here we visualize the forward and reverse work distributions. The forward distribution $P_F(W)$ is defined by the control points above. The reverse distribution $P_R(W)$ is derived using the Crooks Fluctuation Theorem:
 $$
 \\frac{P_F(W)}{P_R(-W)} = e^{\\beta(W - \\Delta F)}
 $$
+`;
+
+const SAMPLING_DETAILS = `
+
 
 The trajectory class $C$ is defined by work values that are in the bounds (LL, UL) specified above. 
 Generally, the reverse class $C^\\dagger$ is defined as all trajectories that are time reversals of those in $C$.
@@ -57,7 +58,7 @@ In this simple case, that reduces simply to those in the negated bounds (-UL, -L
 The plots show:
 1.  **Histograms**: Samples drawn from both distributions using rejection sampling with a piecewise linear envelope.
 2.  **Trajectory Classes**: Work values in the forward class defined by the bounds (LL, UL) is highlighted in blue
-those in the reverse class are highlighted in orange. Overlaps are given by a grey shade.
+those in the reverse class are highlighted in orange. Overlaps are given by a grey shade. Class probabilities are calculated based on numeric integration of the PDFs.
 3.  **PDF Overlays**: The theoretical probability density functions.
 4.  **Log Scale**: Useful for inspecting the tails where rare events occur.
 `;
@@ -66,6 +67,8 @@ const FREE_ENERGY_SUMMARY = `
 ### Free Energy Estimation
 
 This section compares different estimators for the free energy difference $\\Delta F$. We compare the standard Jarzynski and BAR estimators against their "Trajectory Class" counterparts.
+The "Constant Effort" sampling mode is a conservative approach, where we assume only the ability to sample fairly from the full distributions. "Best Case Assumptions"
+assumes we can just as easily sample from the chosen trajectory classes directly, and are able to calculate the class probabilities rather than estimate them from sampling.
 `;
 
 const FREE_ENERGY_DETAILS = `
@@ -73,7 +76,7 @@ const FREE_ENERGY_DETAILS = `
 The Trajectory Class estimators use only a subset of trajectories $C$ (defined by the bounds above) and apply the correction:
 
 $$
-\\beta \\Delta F = \\widehat{\\Delta F}(C) - \\ln \\frac{P(C)}{R(C)}
+\\beta \\Delta F = \\widehat{\\Delta F}(C) - \\ln \\frac{P_F(C)}{P_R(C^\\dagger)}
 $$
 
 *   **Top Row**: BAR-based estimators, $\\widehat{\\Delta F} = \\Delta F_{\\text{BAR}}$. Variance estimates use the MBAR method
@@ -84,17 +87,19 @@ $$
 The Jarzynski method is only given the subset of samples that are within the class in the forward process.
 The BAR method is given also the subset of samples that are within $C^{\\dagger}$ in the reverse process.
 *   **Middle**: Corrected estimator (TCFT). 
-The probabilities are estimated directly from a binary coarse graining on the sampled data based on if the values fall within the class or not. This introduces the additional variance in according to standard methods of estimating sample proportions. 
+Unless the "Best Case Assumptions" are made, the probabilities $P_F(C)$ and $P_R(C^\\dagger)$ are estimated directly from a binary coarse graining on the sampled data based on if the values fall within the class or not. This introduces the additional variance in according to standard methods of estimating sample proportions. 
 This is the worse case scenario, since analytics or others methods might often be able to calculate the exact probabilities. In all cases, the variance is based off of $N/2$ samples from each process.
 *   **Right**: Full estimator using all data.
 `;
 
-const STANDARD_DESCRIPTION = `
+const STANDARD_SUMMARY = `
 ### Variance Diagnostics
 
 Standard variance estimates for the Bennett Acceptance Ratio (BAR) method. These plots help diagnose the reliability of the BAR estimator itself, independent of the trajectory class modifications.
+`;
 
-We compare different methods for estimating the asymptotic variance of the BAR estimator, including the standard method and the MBAR method.
+const STANDARD_DETAILS = `
+The variances are estimated using methods from Gavin Crooks' [thermoflow](https://github.com/gecrooks/thermoflow) library, directly ported to numpy.
 `;
 
 const DEFAULT_ANALYSIS_POINTS: DistributionPoint[] = [
@@ -134,6 +139,21 @@ const ANALYSIS_PRESETS: AnalysisPreset[] = [
       { x: 0.59, y: 0.95 },
       { x: 0.69, y: 0.95 },
       { x: 0.74, y: 0 }
+    ],
+    bounds: { lower: 0, upper: 2.5 }
+  },
+  {
+    id: 'unimodal',
+    label: 'Unimodal',
+    points: [
+      { x: -3, y: 0 },
+      { x: -2, y: .2 },
+      { x: -1, y: .6 },
+      { x: 0, y: .8 },
+      { x: 1, y: .8 },
+      { x: 2, y: .6 },
+      { x: 3, y: .2 },
+      { x: 4, y: 0 }
     ],
     bounds: { lower: 0, upper: 2.5 }
   }
@@ -191,7 +211,7 @@ const ExpandableDescription = ({ summary, details }: { summary: string; details:
         style={{
           background: 'none',
           border: 'none',
-          color: '#38bdf8',
+          color: '#ff4d00',
           cursor: 'pointer',
           padding: '0.5rem 0',
           fontSize: '0.9rem',
@@ -226,6 +246,8 @@ function App() {
   );
   const [analysisTrials, setAnalysisTrials] = useState<number>(DEFAULT_ANALYSIS_TRIALS);
   const [zScore, setZScore] = useState<number>(1.96);
+  const [samplingMode, setSamplingMode] = useState<'constant_effort' | 'best_case_assumptions'>('constant_effort');
+  const [distributionOffset, setDistributionOffset] = useState<number>(0);
   const [analysisLoading, setAnalysisLoading] = useState<boolean>(false);
   const [analysisError, setAnalysisError] = useState<string>('');
   const [analysisResult, setAnalysisResult] = useState<NotebookResultState | null>(null);
@@ -252,6 +274,7 @@ function App() {
     setActivePresetId(presetId);
     setAnalysisPointsState(preset.points.map((point) => ({ ...point })));
     setAnalysisBoundsState({ ...preset.bounds });
+    setDistributionOffset(0);
     setAnalysisError('');
     setAnalysisResult(null);
     setActiveAnalysisSection(null);
@@ -310,17 +333,16 @@ function App() {
       return;
     }
 
-    const sanitizedSampleSize = clampWithStep(analysisSampleSize, ANALYSIS_SAMPLE_SIZE_RANGE);
+    const sanitizedSamplingSampleSize = clampWithStep(samplingSampleSize, SAMPLING_SAMPLE_SIZE_RANGE);
+    const sanitizedAnalysisSampleSize = clampWithStep(analysisSampleSize, ANALYSIS_SAMPLE_SIZE_RANGE);
     const sanitizedTrials = clampWithStep(analysisTrials, ANALYSIS_TRIALS_RANGE);
 
-    const currentSampleSize = section === 'sampling' ? samplingSampleSize : analysisSampleSize;
-    const currentRange = section === 'sampling' ? SAMPLING_SAMPLE_SIZE_RANGE : ANALYSIS_SAMPLE_SIZE_RANGE;
-    const sanitizedCurrentSampleSize = clampWithStep(currentSampleSize, currentRange);
-
-    if (section === 'sampling' && sanitizedCurrentSampleSize !== samplingSampleSize) {
-      setSamplingSampleSize(sanitizedCurrentSampleSize);
-    } else if (section !== 'sampling' && sanitizedCurrentSampleSize !== analysisSampleSize) {
-      setAnalysisSampleSize(sanitizedCurrentSampleSize);
+    // Update state if sanitized values differ
+    if (sanitizedSamplingSampleSize !== samplingSampleSize) {
+      setSamplingSampleSize(sanitizedSamplingSampleSize);
+    }
+    if (sanitizedAnalysisSampleSize !== analysisSampleSize) {
+      setAnalysisSampleSize(sanitizedAnalysisSampleSize);
     }
     if (sanitizedTrials !== analysisTrials) {
       setAnalysisTrials(sanitizedTrials);
@@ -336,9 +358,11 @@ function App() {
         ll: lower,
         ul: upper,
         section,
-        sampleSize: sanitizedCurrentSampleSize,
+        sampleSize: sanitizedSamplingSampleSize,
+        subsetSize: sanitizedAnalysisSampleSize,
         trials: sanitizedTrials,
-        zScore
+        zScore,
+        samplingMode
       };
       const result = await runNotebookAnalysis(payload);
       setAnalysisResult((previous) => {
@@ -382,6 +406,14 @@ function App() {
     }
   };
 
+  const handleOffsetChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const newOffset = Number(event.target.value);
+    const delta = newOffset - distributionOffset;
+    setDistributionOffset(newOffset);
+    setAnalysisPointsState((prev) => prev.map((p) => ({ ...p, x: p.x + delta })));
+    setActivePresetId(CUSTOM_PRESET_ID);
+  };
+
   if (showLanding) {
     return <LandingPage onEnterApp={() => setShowLanding(false)} />;
   }
@@ -391,6 +423,25 @@ function App() {
       <div className="panel">
         <div className="panel-header">
           <h1>Free Energy Prototype Suite</h1>
+          {analysisResult?.metadata?.F !== undefined && (
+            <div style={{ 
+              position: 'fixed',
+              top: '1.5rem',
+              right: '2rem',
+              zIndex: 1000,
+              fontSize: '1.5rem', 
+              fontWeight: 600, 
+              color: '#ff4d00',
+              background: 'rgba(5, 2, 0, 0.85)',
+              backdropFilter: 'blur(12px)',
+              padding: '0.75rem 1.5rem',
+              borderRadius: '2rem',
+              border: '1px solid rgba(255, 77, 0, 0.3)',
+              boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4)'
+            }}>
+              ΔF = {Number(analysisResult.metadata.F).toFixed(3)}
+            </div>
+          )}
         </div>
 
         <p className="status">{apiStatus}</p>
@@ -422,6 +473,25 @@ function App() {
                   <span className="preset-indicator">Custom</span>
                 ) : null}
               </div>
+              
+              <div className="offset-control" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginLeft: '1rem', marginRight: 'auto' }}>
+                 <label htmlFor="dist-offset" style={{ fontSize: '0.8rem', color: 'rgba(255, 236, 224, 0.7)', fontWeight: 500 }}>Offset</label>
+                 <input 
+                    id="dist-offset"
+                    type="range" 
+                    min="-5" 
+                    max="5" 
+                    step="0.1" 
+                    value={distributionOffset} 
+                    onChange={handleOffsetChange}
+                    disabled={analysisLoading}
+                    style={{ width: '100px', accentColor: '#ff4d00' }}
+                 />
+                 <span style={{ fontSize: '0.8rem', color: 'rgba(255, 236, 224, 0.7)', width: '2.5rem', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                   {distributionOffset > 0 ? '+' : ''}{distributionOffset.toFixed(1)}
+                 </span>
+              </div>
+
               <div className="bounds-display">
                 <span>LL: {analysisBounds.lower.toFixed(2)}</span>
                 <span>UL: {analysisBounds.upper.toFixed(2)}</span>
@@ -435,7 +505,7 @@ function App() {
             <section className="analysis-group">
               <div className="analysis-group-content" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem', alignItems: 'start' }}>
                 <div className="analysis-left-column">
-                  <div className="analysis-controls-inline" style={{ display: 'flex', gap: '1rem', alignItems: 'flex-end', marginBottom: '1.5rem', padding: '1rem', backgroundColor: '#1e293b', borderRadius: '0.5rem', border: '1px solid #334155' }}>
+                  <div className="analysis-controls-inline" style={{ display: 'flex', gap: '1rem', alignItems: 'flex-end', marginBottom: '1.5rem', padding: '1rem', backgroundColor: 'rgba(20, 10, 5, 0.6)', borderRadius: '0.5rem', border: '1px solid rgba(255, 77, 0, 0.2)' }}>
                       <label className="analysis-parameter" htmlFor="sampling-sample-size" style={{ flex: 1, marginBottom: 0 }}>
                         <div className="parameter-header">
                           <span>Histogram Samples</span>
@@ -472,9 +542,9 @@ function App() {
 
                 <div className="analysis-visuals" style={{ marginTop: 0 }}>
                   {analysisResult?.metadata && (analysisResult.metadata.p_c !== undefined) ? (
-                    <p style={{ marginTop: '0rem', marginBottom: '1rem', color: '#94a3b8', fontSize: '1rem', lineHeight: '1.6' }}>
-                      The forward class represents <strong style={{ color: '#e2e8f0' }}>{(Number(analysisResult.metadata.p_c) * 100).toFixed(2)}%</strong> of 
-                      trajectories in the forward process, and the reverse class represents <strong style={{ color: '#e2e8f0' }}>{(Number(analysisResult.metadata.r_c_rev) * 100).toFixed(2)}%</strong> of 
+                    <p style={{ marginTop: '0rem', marginBottom: '1rem', color: 'rgba(255, 236, 224, 0.8)', fontSize: '1rem', lineHeight: '1.6' }}>
+                      The forward class represents <strong style={{ color: '#ff9100' }}>{(Number(analysisResult.metadata.p_c) * 100).toFixed(2)}%</strong> of 
+                      trajectories in the forward process, and the reverse class represents <strong style={{ color: '#ff9100' }}>{(Number(analysisResult.metadata.r_c_rev) * 100).toFixed(2)}%</strong> of 
                       the trajectories in the reverse process.
                     </p>
                   ) : null}
@@ -511,7 +581,52 @@ function App() {
             <section className="analysis-group">
               <div className="analysis-group-content" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem', alignItems: 'start' }}>
                 <div className="analysis-left-column">
-                  <div className="analysis-controls-inline" style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '1.5rem', padding: '1rem', backgroundColor: '#1e293b', borderRadius: '0.5rem', border: '1px solid #334155' }}>
+                  <div className="analysis-controls-inline" style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '1.5rem', padding: '1rem', backgroundColor: 'rgba(20, 10, 5, 0.6)', borderRadius: '0.5rem', border: '1px solid rgba(255, 77, 0, 0.2)' }}>
+                    
+                    <div style={{ display: 'flex', gap: '1rem', width: '100%' }}>
+                      <label className="analysis-parameter" style={{ flex: 1, marginBottom: 0 }}>
+                        <div className="parameter-header">
+                          <span>Sampling Mode</span>
+                        </div>
+                        <div style={{ display: 'flex', gap: '0.5rem' }}>
+                          <button
+                            type="button"
+                            onClick={() => setSamplingMode('constant_effort')}
+                            style={{
+                              flex: 1,
+                              padding: '0.5rem',
+                              borderRadius: '0.25rem',
+                              background: samplingMode === 'constant_effort' ? '#ff4d00' : 'rgba(60, 20, 10, 0.6)',
+                              color: samplingMode === 'constant_effort' ? '#050200' : 'rgba(255, 236, 224, 0.8)',
+                              border: 'none',
+                              cursor: 'pointer',
+                              fontSize: '0.8rem',
+                              fontWeight: 500
+                            }}
+                          >
+                            Constant Effort
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setSamplingMode('best_case_assumptions')}
+                            style={{
+                              flex: 1,
+                              padding: '0.5rem',
+                              borderRadius: '0.25rem',
+                              background: samplingMode === 'best_case_assumptions' ? '#ff4d00' : 'rgba(60, 20, 10, 0.6)',
+                              color: samplingMode === 'best_case_assumptions' ? '#050200' : 'rgba(255, 236, 224, 0.8)',
+                              border: 'none',
+                              cursor: 'pointer',
+                              fontSize: '0.8rem',
+                              fontWeight: 500
+                            }}
+                          >
+                            Best Case Assumptions
+                          </button>
+                        </div>
+                      </label>
+                    </div>
+
                     <div style={{ display: 'flex', gap: '1rem', width: '100%' }}>
                       <label className="analysis-parameter" htmlFor="analysis-sample-size" style={{ flex: 1, marginBottom: 0 }}>
                         <div className="parameter-header">
@@ -559,7 +674,7 @@ function App() {
                           value={zScore}
                           onChange={(e) => setZScore(Number(e.target.value))}
                           disabled={analysisLoading}
-                          style={{ width: '100%', padding: '0.5rem', borderRadius: '0.25rem', background: '#334155', color: 'white', border: '1px solid #475569' }}
+                          style={{ width: '100%', padding: '0.5rem', borderRadius: '0.25rem', background: 'rgba(20, 10, 5, 0.8)', color: '#ffece0', border: '1px solid rgba(255, 77, 0, 0.3)' }}
                         >
                           <option value={1.64}>90% (Z=1.64)</option>
                           <option value={1.96}>95% (Z=1.96)</option>
@@ -578,18 +693,6 @@ function App() {
                           ? 'Generating…'
                           : 'Generate Estimates'}
                       </button>
-                      <button
-                        type="button"
-                        className="cta"
-                        onClick={() => handleAnalysisSubmit('standard')}
-                        disabled={analysisLoading}
-                        aria-pressed={activeAnalysisSection === 'standard'}
-                        style={{ whiteSpace: 'nowrap' }}
-                      >
-                        {analysisLoading && activeAnalysisSection === 'standard'
-                          ? 'Generating…'
-                          : 'BAR Variance'}
-                      </button>
                     </div>
                   </div>
 
@@ -597,9 +700,38 @@ function App() {
                 </div>
 
                 <div className="analysis-visuals" style={{ marginTop: 0 }}>
+                  {analysisResult?.metadata?.failed_trials && analysisResult.metadata.failed_trials > 0 ? (
+                     <div style={{
+                       padding: '1rem',
+                       background: 'rgba(239, 68, 68, 0.1)',
+                       border: '1px solid rgba(239, 68, 68, 0.2)',
+                       borderRadius: '0.5rem',
+                       marginBottom: '1rem',
+                       color: '#fca5a5',
+                       fontSize: '0.9rem'
+                     }}>
+                       <strong>Warning:</strong> {analysisResult.metadata.failed_trials} trials failed to complete.
+                       <br/>
+                       {analysisResult.metadata.failure_reasons && typeof analysisResult.metadata.failure_reasons === 'object' ? (
+                         <ul style={{ marginTop: '0.5rem', paddingLeft: '1.5rem' }}>
+                           {Object.entries(analysisResult.metadata.failure_reasons as Record<string, number>)
+                             .filter(([_, count]) => count > 0)
+                             .map(([reason, count]) => (
+                               <li key={reason}>
+                                 {reason.replace(/_/g, ' ')}: {count}
+                               </li>
+                             ))}
+                         </ul>
+                       ) : null}
+                       <div style={{ marginTop: '0.5rem' }}>
+                         This usually happens when the trajectory class probability is extremely low, causing the sampling loop to time out or fail to find enough samples.
+                         Consider increasing the class width or shifting the distribution.
+                       </div>
+                     </div>
+                  ) : null}
+
                   {analysisResult?.freeEnergyTopPlot ||
-                    analysisResult?.freeEnergyBottomPlot ||
-                    analysisResult?.freeEnergyStandardPlot ? (
+                    analysisResult?.freeEnergyBottomPlot ? (
                     <div className="analysis-group-images">
                       {analysisResult?.freeEnergyTopPlot ? (
                         <figure className="analysis-image-card">
@@ -619,7 +751,53 @@ function App() {
                           <figcaption className="image-caption">JAR variance diagnostics</figcaption>
                         </figure>
                       ) : null}
-                      {analysisResult?.freeEnergyStandardPlot ? (
+                    </div>
+                  ) : (
+                    <p className="placeholder">
+                      Use “Generate Trajectory Class Estimates” to compute the variance panels.
+                    </p>
+                  )}
+
+                  {analysisResult?.metadata ? (
+                    <dl className="analysis-metadata">
+                      {Object.entries(analysisResult.metadata)
+                        .filter(([key]) => !['p_c', 'r_c_rev', 'failure_reasons', 'sample_size', 'trials', 'subset_size', 'failed_trials', 'F'].includes(key))
+                        .map(([key, value]) => (
+                        <Fragment key={key}>
+                          <dt>{key}</dt>
+                          <dd>{typeof value === 'number' ? Number(value).toFixed(3) : value}</dd>
+                        </Fragment>
+                      ))}
+                    </dl>
+                  ) : null}
+                </div>
+              </div>
+            </section>
+
+            <section className="analysis-group">
+              <div className="analysis-group-content" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem', alignItems: 'start' }}>
+                <div className="analysis-left-column">
+                  <div className="analysis-controls-inline" style={{ display: 'flex', gap: '1rem', alignItems: 'flex-end', marginBottom: '1.5rem', padding: '1rem', backgroundColor: 'rgba(20, 10, 5, 0.6)', borderRadius: '0.5rem', border: '1px solid rgba(255, 77, 0, 0.2)' }}>
+                      <button
+                        type="button"
+                        className="cta"
+                        onClick={() => handleAnalysisSubmit('standard')}
+                        disabled={analysisLoading}
+                        aria-pressed={activeAnalysisSection === 'standard'}
+                        style={{ whiteSpace: 'nowrap', width: '100%' }}
+                      >
+                        {analysisLoading && activeAnalysisSection === 'standard'
+                          ? 'Generating…'
+                          : 'Generate Variance Diagnostics'}
+                      </button>
+                  </div>
+
+                  <ExpandableDescription summary={STANDARD_SUMMARY} details={STANDARD_DETAILS} />
+                </div>
+
+                <div className="analysis-visuals" style={{ marginTop: 0 }}>
+                  {analysisResult?.freeEnergyStandardPlot ? (
+                    <div className="analysis-group-images">
                         <figure className="analysis-image-card">
                           <img
                             src={`data:image/png;base64,${analysisResult.freeEnergyStandardPlot}`}
@@ -627,27 +805,12 @@ function App() {
                           />
                           <figcaption className="image-caption">Variance diagnostics</figcaption>
                         </figure>
-                      ) : null}
                     </div>
                   ) : (
                     <p className="placeholder">
-                      Use “Generate Trajectory Class Estimates” or “Generate Variance Diagnostics” to
-                      compute the variance panels.
+                      Use “Generate Variance Diagnostics” to compute the variance panels.
                     </p>
                   )}
-
-                  {analysisResult?.metadata ? (
-                    <dl className="analysis-metadata">
-                      {Object.entries(analysisResult.metadata)
-                        .filter(([key]) => !['p_c', 'r_c_rev'].includes(key))
-                        .map(([key, value]) => (
-                        <Fragment key={key}>
-                          <dt>{key}</dt>
-                          <dd>{Number(value).toFixed(3)}</dd>
-                        </Fragment>
-                      ))}
-                    </dl>
-                  ) : null}
                 </div>
               </div>
             </section>

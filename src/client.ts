@@ -37,8 +37,10 @@ export interface NotebookRequestPayload {
   ul: number;
   section?: 'sampling' | 'free_energy' | 'standard' | 'all';
   sampleSize?: number;
+  subsetSize?: number;
   trials?: number;
   zScore?: number;
+  samplingMode?: 'constant_effort' | 'best_case_assumptions';
 }
 
 interface NotebookResponseRaw {
@@ -47,7 +49,7 @@ interface NotebookResponseRaw {
   free_energy_top_plot?: string | null;
   free_energy_bottom_plot?: string | null;
   free_energy_standard_plot?: string | null;
-  metadata?: Record<string, number>;
+  metadata?: Record<string, number | Record<string, number>>;
 }
 
 export interface NotebookResponse {
@@ -56,7 +58,7 @@ export interface NotebookResponse {
   freeEnergyTopPlot?: string | null;
   freeEnergyBottomPlot?: string | null;
   freeEnergyStandardPlot?: string | null;
-  metadata?: Record<string, number>;
+  metadata?: Record<string, number | Record<string, number>>;
 }
 
 class HttpError extends Error {
@@ -129,18 +131,26 @@ export async function runNotebookAnalysis(
     ul: payload.ul,
     section: payload.section,
     sample_size: payload.sampleSize,
+    subset_size: payload.subsetSize,
     trials: payload.trials,
-    z_score: payload.zScore
+    z_score: payload.zScore,
+    sampling_mode: payload.samplingMode
   };
 
   if (bodyPayload.sample_size === undefined) {
     delete bodyPayload.sample_size;
+  }
+  if (bodyPayload.subset_size === undefined) {
+    delete bodyPayload.subset_size;
   }
   if (bodyPayload.trials === undefined) {
     delete bodyPayload.trials;
   }
   if (bodyPayload.z_score === undefined) {
     delete bodyPayload.z_score;
+  }
+  if (bodyPayload.sampling_mode === undefined) {
+    delete bodyPayload.sampling_mode;
   }
 
   const response = await request<NotebookResponseRaw>('/analysis', {

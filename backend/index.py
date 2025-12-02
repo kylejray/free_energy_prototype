@@ -64,6 +64,12 @@ class NotebookRequest(BaseModel):
         le=10_000,
         description="Optional sample size override for analysis runs",
     )
+    subset_size: int | None = Field(
+        default=None,
+        ge=2,
+        le=10_000,
+        description="Optional subset size override for analysis runs",
+    )
     trials: int | None = Field(
         default=None,
         ge=1,
@@ -76,6 +82,10 @@ class NotebookRequest(BaseModel):
         le=5.0,
         description="Z-score for confidence intervals (e.g., 1.64 for 90%, 1.96 for 95%)",
     )
+    sampling_mode: Literal["constant_effort", "best_case_assumptions"] = Field(
+        default="constant_effort",
+        description="Sampling strategy: 'constant_effort' (fixed total simulations) or 'best_case_assumptions' (fixed samples in class)",
+    )
 
 
 class NotebookResponse(BaseModel):
@@ -84,7 +94,7 @@ class NotebookResponse(BaseModel):
     free_energy_top_plot: str | None = None
     free_energy_bottom_plot: str | None = None
     free_energy_standard_plot: str | None = None
-    metadata: dict[str, float] | None = None
+    metadata: dict[str, float | dict[str, int]] | None = None
 
 
 @app.get("/")
@@ -128,10 +138,14 @@ async def run_notebook(payload: NotebookRequest) -> NotebookResponse:
         kwargs: dict[str, object] = {}
         if payload.sample_size is not None:
             kwargs["sample_size"] = payload.sample_size
+        if payload.subset_size is not None:
+            kwargs["subset_size"] = payload.subset_size
         if payload.trials is not None:
             kwargs["trials"] = payload.trials
         if payload.z_score is not None:
             kwargs["z_score"] = payload.z_score
+        if payload.sampling_mode is not None:
+            kwargs["sampling_mode"] = payload.sampling_mode
 
         result = run_notebook_analysis(
             payload.xp,

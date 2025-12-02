@@ -79,8 +79,11 @@ export function DistributionEditor({
       }
 
       const rect = svg.getBoundingClientRect();
-      const rawX = (clientX - rect.left - MARGIN.left) / innerWidth;
-      const rawY = (rect.bottom - clientY - MARGIN.bottom) / innerHeight;
+      const scaleX = WIDTH / rect.width;
+      const scaleY = HEIGHT / rect.height;
+
+      const rawX = ((clientX - rect.left) * scaleX - MARGIN.left) / innerWidth;
+      const rawY = ((rect.bottom - clientY) * scaleY - MARGIN.bottom) / innerHeight;
       const ratioX = clamp(rawX, 0, 1);
       const ratioY = clamp(rawY, 0, 1);
 
@@ -175,8 +178,9 @@ export function DistributionEditor({
   return (
     <svg
       ref={svgRef}
-      width={WIDTH}
-      height={HEIGHT}
+      viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
+      width="100%"
+      height="auto"
       role="presentation"
       aria-label="Interactive distribution editor"
       className="distribution-editor"
@@ -202,8 +206,8 @@ export function DistributionEditor({
         y={MARGIN.top}
         width={innerWidth}
         height={innerHeight}
-        fill="rgba(148, 163, 184, 0.1)"
-        stroke="rgba(148, 163, 184, 0.3)"
+        fill="rgba(255, 77, 0, 0.05)"
+        stroke="rgba(255, 77, 0, 0.2)"
         rx={12}
       />
 
@@ -212,7 +216,7 @@ export function DistributionEditor({
         y={MARGIN.top}
         width={projectX(upperBound) - projectX(lowerBound)}
         height={innerHeight}
-        fill="rgba(56, 189, 248, 0.12)"
+        fill="rgba(255, 77, 0, 0.12)"
         clipPath="url(#plot-area)"
       />
 
@@ -221,7 +225,7 @@ export function DistributionEditor({
         x2={projectX(0)}
         y1={MARGIN.top}
         y2={HEIGHT - MARGIN.bottom}
-        stroke="rgba(148, 163, 184, 0.7)"
+        stroke="rgba(255, 77, 0, 0.4)"
         strokeDasharray="6 4"
         strokeWidth={2}
         clipPath="url(#plot-area)"
@@ -237,8 +241,8 @@ export function DistributionEditor({
 
       <defs>
         <linearGradient id="gradient-line" x1="0%" y1="0%" x2="100%" y2="0%">
-          <stop offset="0%" stopColor="#38bdf8" />
-          <stop offset="100%" stopColor="#6366f1" />
+          <stop offset="0%" stopColor="#ff4d00" />
+          <stop offset="100%" stopColor="#ff9100" />
         </linearGradient>
       </defs>
 
@@ -270,7 +274,7 @@ export function DistributionEditor({
               x2={projectX(value)}
               y1={MARGIN.top}
               y2={HEIGHT - MARGIN.bottom}
-              stroke="rgba(56, 189, 248, 0.8)"
+              stroke="rgba(255, 77, 0, 0.8)"
               strokeDasharray="6 4"
               strokeWidth={2}
             />

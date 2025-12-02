@@ -453,30 +453,66 @@ class HistDist:
         except ZeroDivisionError:
             return None
 
-    def rejection_sample(self, N):
-        if self.get_acceptance_ratio() is None:
-            _ = self.rejection_trial(500)
-        ratio = self.get_acceptance_ratio()
-        if ratio is None or ratio <= 0:
-            ratio = 1.0
-        num_samples = max(int(N / ratio), N)
-        accepted_samples = self.rejection_trial(num_samples)
-        if self.verbose and num_samples > 0:
-            print(
-                f'sample acceptance ratio:{len(accepted_samples) / max(num_samples, 1):.4f}, '
-                f'expected:{ratio:.4f}'
-            )
-        return accepted_samples
+    def rejection_sample(self, N, max_attempts=10_000_000):
+        collected_samples = []
+        total_attempts = 0
+        
+        # Ensure M is initialized
+        if not hasattr(self, 'M'):
+            _ = self.find_M()
+
+        while len(collected_samples) < N:
+            # Estimate batch size
+            ratio = self.get_acceptance_ratio()
+            if ratio is None or ratio <= 0:
+                ratio = 0.1
+            
+            needed = N - len(collected_samples)
+            # Request slightly more to reduce iterations, but cap it
+            batch_size = int(needed / ratio * 1.2)
+            batch_size = max(100, min(batch_size, 1_000_000))
+            
+            try:
+                new_samples = self.rejection_trial(batch_size)
+                collected_samples.extend(new_samples)
+            except ValueError as e:
+                if "Envelope violation" in str(e):
+                    # M has been updated. Restart sampling to ensure consistency.
+                    collected_samples = []
+                    if self.verbose:
+                        print(f"Envelope violation detected. Restarting with M={self.M:.4f}")
+                    continue
+                raise e
+            
+            total_attempts += batch_size
+            if total_attempts >= max_attempts:
+                print(f"Warning: Rejection sampler reached max attempts ({max_attempts}). Returning {len(collected_samples)} samples.")
+                break
+                
+        return np.array(collected_samples[:N])
 
     def rejection_trial(self, N):
         if not hasattr(self, 'M'):
             _ = self.find_M()
         y, prob_gy = self.sample(N)
+        
         with np.errstate(divide="ignore", invalid="ignore"):
-            ratio = self.target(y) / (self.M * prob_gy)
-        ratio = np.nan_to_num(ratio, nan=0.0, posinf=1.0, neginf=0.0)
-        ratio = np.clip(ratio, 0.0, 1.0)
-        mask = np.random.uniform(0, 1, N) < ratio
+            raw_ratio = self.target(y) / (self.M * prob_gy)
+            
+        # Check for envelope violation (target > M * proposal)
+        # Use a small tolerance for floating point issues, but generally strict
+        raw_ratio = np.nan_to_num(raw_ratio, nan=0.0, posinf=0.0, neginf=0.0)
+        max_ratio = np.max(raw_ratio)
+        
+        if max_ratio > 1.0:
+            # Update M and signal restart
+            self.M *= max_ratio * 1.05  # Increase M by max_ratio + 5% buffer
+            # Reset stats so acceptance ratio reflects new M
+            self.n_accepted = 0
+            self.n_sampled = 0
+            raise ValueError(f"Envelope violation: max_ratio={max_ratio}")
+
+        mask = np.random.uniform(0, 1, N) < raw_ratio
         accepted_samples = y[mask]
 
         self.n_accepted += len(accepted_samples)

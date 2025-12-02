@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import time
 from io import BytesIO
 from typing import List, Literal
 
@@ -59,6 +60,7 @@ def run_notebook_analysis(
     trials: int = 50,
     subset_size: int = 15,
     z_score: float = 1.96,
+    sampling_mode: Literal["constant_effort", "best_case_assumptions"] = "constant_effort",
 ) -> dict[str, object]:
     plt.rcParams.update({'font.size': 18})
     if len(xp) != len(fp):
@@ -163,7 +165,25 @@ def run_notebook_analysis(
     JAR_TC_CORR: list[list[float]] = []
     JAR_FULL: list[list[float]] = []
 
+    BAR_TC_COUNTS: list[tuple[int, int]] = []
+    BAR_FULL_COUNTS: list[tuple[int, int]] = []
+    JAR_TC_COUNTS: list[int] = []
+    JAR_FULL_COUNTS: list[int] = []
+
     standard_bar_results: dict[str, list[list[float]]] = {method: [] for method in bar_methods}
+
+    failed_trials = 0
+    failure_reasons = {
+        "timeout_forward": 0,
+        "timeout_reverse": 0,
+        "empty_forward": 0,
+        "empty_reverse": 0,
+        "insufficient_forward": 0,
+        "insufficient_reverse": 0,
+        "empty_class_forward": 0,
+        "empty_class_reverse": 0,
+        "sampling_error": 0
+    }
 
     if include_free_energy or include_standard:
         # Constant effort: Total samples = subset_size
@@ -173,18 +193,107 @@ def run_notebook_analysis(
         n_half = max(1, n_total // 2)
 
         for _ in range(trials):
-            forward_draw_full = hdist.rejection_sample(n_total)
-            reverse_draw_subset = r_hdist.rejection_sample(n_half)
+            if sampling_mode == "best_case_assumptions":
+                # Best Case Assumptions Mode
+                # JAR_TC: Needs exactly subset_size samples in class
+                # BAR_TC: Needs exactly n_half samples in class (F & R)
+                
+                # --- Forward Sampling ---
+                f_all = []
+                f_in_class_count = 0
+                batch_size = max(100, subset_size * 5)
+                max_samples = 1_000_000
+                t_start = time.time()
+                
+                while f_in_class_count < subset_size and len(f_all) * batch_size < max_samples:
+                    if time.time() - t_start > 2.0:  # 2.0s timeout per leg
+                        break
+                    batch = hdist.rejection_sample(batch_size)
+                    mask = (batch > ll) & (batch < ul)
+                    f_in_class_count += np.sum(mask)
+                    f_all.append(batch)
+                
+                if not f_all:
+                    failed_trials += 1
+                    failure_reasons["empty_forward"] += 1
+                    break
+                
+                if f_in_class_count < subset_size and time.time() - t_start > 10.0:
+                     failed_trials += 1
+                     failure_reasons["timeout_forward"] += 1
+                     break
 
-            if (
-                forward_draw_full.size < n_total
-                or reverse_draw_subset.size < n_half
-            ):
-                continue
+                forward_draw_full = np.concatenate(f_all)
+                
+                # Truncate forward_draw_full to exactly the point where we got the Nth class sample
+                mask_full = (forward_draw_full > ll) & (forward_draw_full < ul)
+                valid_indices = np.where(mask_full)[0]
+                
+                if len(valid_indices) < subset_size:
+                    failed_trials += 1
+                    failure_reasons["insufficient_forward"] += 1
+                    break # Failed to get enough samples
+                
+                cutoff_jar = valid_indices[subset_size - 1]
+                forward_draw_full = forward_draw_full[:cutoff_jar+1]
+                
+                # For BAR, we need n_half samples. Since subset_size >= n_half, we can reuse forward_draw_full.
+                # We truncate it further for BAR usage.
+                cutoff_bar = valid_indices[n_half - 1]
+                forward_subset_bar = forward_draw_full[:cutoff_bar+1]
+                
+                # --- Reverse Sampling ---
+                r_all = []
+                r_in_class_count = 0
+                t_start = time.time()
+                
+                while r_in_class_count < n_half and len(r_all) * batch_size < max_samples:
+                    if time.time() - t_start > 2.0:  # 2.0s timeout per leg
+                        break
+                    batch = r_hdist.rejection_sample(batch_size)
+                    mask = (batch < -ll) & (batch > -ul)
+                    r_in_class_count += np.sum(mask)
+                    r_all.append(batch)
+                
+                if not r_all:
+                    failed_trials += 1
+                    failure_reasons["empty_reverse"] += 1
+                    break
 
-            # BAR subsets (N/2 each)
-            forward_subset_bar = forward_draw_full[:n_half]
-            reverse_subset_bar = reverse_draw_subset[:n_half]
+                if r_in_class_count < n_half and time.time() - t_start > 2.0:
+                     failed_trials += 1
+                     failure_reasons["timeout_reverse"] += 1
+                     break
+
+                reverse_draw_subset = np.concatenate(r_all)
+                
+                mask_r = (reverse_draw_subset < -ll) & (reverse_draw_subset > -ul)
+                valid_indices_r = np.where(mask_r)[0]
+                
+                if len(valid_indices_r) < n_half:
+                    failed_trials += 1
+                    failure_reasons["insufficient_reverse"] += 1
+                    break
+                
+                cutoff_r = valid_indices_r[n_half - 1]
+                reverse_subset_bar = reverse_draw_subset[:cutoff_r+1]
+
+            else:
+                # Constant Effort Mode
+                forward_draw_full = hdist.rejection_sample(n_total)
+                reverse_draw_subset = r_hdist.rejection_sample(n_half)
+
+                if (
+                    forward_draw_full.size < n_total
+                    or reverse_draw_subset.size < n_half
+                ):
+                    failed_trials += 1
+                    failure_reasons["sampling_error"] += 1
+                    continue
+
+                # BAR subsets (N/2 each)
+                forward_subset_bar = forward_draw_full[:n_half]
+                reverse_subset_bar = reverse_draw_subset[:n_half]
 
             if include_standard:
                 for method in bar_methods:
@@ -203,6 +312,16 @@ def run_notebook_analysis(
                         standard_bar_results[method].append([estimate_f, error_f])
 
             if include_free_energy:
+                # Prepare inputs for Full estimators
+                if sampling_mode == "best_case_assumptions":
+                    jar_full_input = forward_draw_full[:subset_size]
+                    bar_full_f_input = forward_subset_bar[:n_half]
+                    bar_full_r_input = reverse_subset_bar[:n_half]
+                else:
+                    jar_full_input = forward_draw_full
+                    bar_full_f_input = forward_subset_bar
+                    bar_full_r_input = reverse_subset_bar
+
                 # JAR uses full forward dataset (N)
                 f_class_jar = (forward_draw_full > ll) & (forward_draw_full < ul)
                 
@@ -210,19 +329,34 @@ def run_notebook_analysis(
                 f_class_bar = (forward_subset_bar > ll) & (forward_subset_bar < ul)
                 r_class_bar = (reverse_subset_bar < -ll) & (reverse_subset_bar > -ul)
 
-                if np.sum(f_class_jar) == 0 or np.sum(f_class_bar) == 0 or np.sum(r_class_bar) == 0:
+                if np.sum(f_class_jar) == 0:
+                    failed_trials += 1
+                    failure_reasons["empty_class_forward"] += 1
+                    continue
+                if np.sum(f_class_bar) == 0:
+                    failed_trials += 1
+                    failure_reasons["empty_class_forward"] += 1
+                    continue
+                if np.sum(r_class_bar) == 0:
+                    failed_trials += 1
+                    failure_reasons["empty_class_reverse"] += 1
                     continue
 
                 # Jarzynski Estimates (N samples)
-                jar_full = class_meta_f(forward_draw_full, sample_error=True)
+                jar_full = class_meta_f(jar_full_input, sample_error=True)
                 jar_tc = class_meta_f(forward_draw_full[f_class_jar], sample_error=True)
                 
                 # Correction term (using BAR split data for consistency)
-                tcft_mean, tcft_var = tcft_correction(f_class_bar, r_class_bar)
+                if sampling_mode == "best_case_assumptions":
+                    tcft_mean = -np.log(p_c / r_c_rev)
+                    tcft_var = 0.0
+                else:
+                    tcft_mean, tcft_var = tcft_correction(f_class_bar, r_class_bar)
+                
                 jar_tc_corr = [jar_tc[0] + tcft_mean, np.sqrt(jar_tc[1] ** 2 + tcft_var)]
 
                 # BAR Estimates (N/2 + N/2 samples)
-                bar_full = free_energy_bar(forward_subset_bar, reverse_subset_bar)
+                bar_full = free_energy_bar(bar_full_f_input, bar_full_r_input)
                 bar_tc = free_energy_bar(
                     forward_subset_bar[f_class_bar],
                     reverse_subset_bar[r_class_bar],
@@ -240,7 +374,17 @@ def run_notebook_analysis(
                 JAR_TC_CORR.append([float(jar_tc_corr[0]), float(jar_tc_corr[1])])
                 JAR_FULL.append([float(jar_full[0]), float(jar_full[1])])
 
+                JAR_FULL_COUNTS.append(len(jar_full_input))
+                JAR_TC_COUNTS.append(np.sum(f_class_jar))
+                BAR_FULL_COUNTS.append((len(bar_full_f_input), len(bar_full_r_input)))
+                BAR_TC_COUNTS.append((np.sum(f_class_bar), np.sum(r_class_bar)))
+
     if include_free_energy:
+        avg_jar_tc = np.mean(JAR_TC_COUNTS) if JAR_TC_COUNTS else 0
+        avg_jar_full = np.mean(JAR_FULL_COUNTS) if JAR_FULL_COUNTS else 0
+        avg_bar_tc = np.mean(BAR_TC_COUNTS, axis=0) if BAR_TC_COUNTS else (0, 0)
+        avg_bar_full = np.mean(BAR_FULL_COUNTS, axis=0) if BAR_FULL_COUNTS else (0, 0)
+
         datas = [BAR_TC, BAR_TC_CORR, BAR_FULL, JAR_TC, JAR_TC_CORR, JAR_FULL]
         labels = [
             r"$\Delta F_{\text{BAR}}(C)$",
@@ -249,6 +393,15 @@ def run_notebook_analysis(
             r"$\Delta F_{\text{JAR}}(C)$",
             r"$\Delta F_{\text{JAR}}(C) - \ln(P/R)$",
             r"$\Delta F_{\text{JAR}}$",
+        ]
+        
+        titles = [
+            rf"$\langle N_F \rangle \approx {int(round(avg_bar_tc[0]))}, \langle N_R \rangle \approx {int(round(avg_bar_tc[1]))}$",
+            rf"$\langle N_F \rangle \approx {int(round(avg_bar_tc[0]))}, \langle N_R \rangle \approx {int(round(avg_bar_tc[1]))}$",
+            f"N_F={avg_bar_full[0]:.1f}, N_R={avg_bar_full[1]:.1f}",
+            rf"$\langle N \rangle \approx {int(round(avg_jar_tc))}$",
+            rf"$\langle N \rangle \approx {int(round(avg_jar_tc))}$",
+            f"N={avg_jar_full:.1f}",
         ]
 
         old_ylim_lower, old_ylim_upper = _free_energy_limits(datas, F)
@@ -261,6 +414,8 @@ def run_notebook_analysis(
                 axis.set_visible(False)
                 continue
             variance_plot(data, ax=axis, parameter=F, z_score=z_score, show_legend=(i == 0))
+            current_title = axis.get_title()
+            axis.set_title(f"{titles[i]}\n{current_title}")
             axis.set_ylabel(label)
             axis.set_xlabel("trial number")
             axis.set_ylim(old_ylim_lower, old_ylim_upper)
@@ -270,6 +425,8 @@ def run_notebook_analysis(
                 axis.set_visible(False)
                 continue
             variance_plot(data, ax=axis, parameter=F, z_score=z_score, show_legend=(i == 0))
+            current_title = axis.get_title()
+            axis.set_title(f"{titles[i+3]}\n{current_title}")
             axis.set_ylabel(label)
             axis.set_xlabel("trial number")
             axis.set_ylim(old_ylim_lower, old_ylim_upper)
@@ -310,6 +467,8 @@ def run_notebook_analysis(
         "subset_size": float(subset_size),
         "p_c": p_c,
         "r_c_rev": r_c_rev,
+        "failed_trials": failed_trials,
+        "failure_reasons": failure_reasons,
     }
 
     return {

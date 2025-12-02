@@ -52,7 +52,7 @@ In this arena, there is much room for innovation and exploration. Analytical res
 Alternatively, ML based methods to search sampling strategies could yield trajectory classes that are particularly amenable to accurate free energy estimation, even when the class probabilities are estimated via simple histogramming methods.
 
 Here, I don't provide any scalable sampling strategies or clever methods to calculate class probabilities, but rather a simple interactive tool 
-to explore how different trajectories subclassed by work values can be used to estimate free energy differences. More generally, calsses can
+to explore how different trajectories subclassed by work values can be used to estimate free energy differences. More generally, classes can
 be defined by any measurable property of the trajectories, but work values are a particularly convenient choice for this toy model.
 
 -Kyle Ray

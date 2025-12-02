@@ -23,14 +23,14 @@ $$
 $$
 Where the average is a conditional average among the trajectories in $C$, $\\Sigma$ is the entropy production associted with the trajectory,
 $P_F(C)$ is the probability of observing  a trajectory in class $C$ during the forward process, and $P_R(C^\\dagger)$ is the
-probability of observing the a trajectory in  the "reversed class" $C^\\dagger$ during the reverse process.
+probability of observing a trajectory in  the "reversed class" $C^\\dagger$ during the reverse process.
 Under some typical asssumptions, trajectories within a class will all have an entropy production that can be written as $\\Sigma = \\beta (W - \\Delta F)$, leading
 to a somewhat familiar form of the equation:
 
 $$
 \\ln \\langle e^{-\\beta W} \\rangle_C = -\\beta \\Delta F + \\ln \\frac{P_R(C^\\dagger)}{P_F(C)}
 $$
-And, it is from this equation that we find a remarkable insight into free energy estimation.
+And, this equation leads to a remarkable insight into free energy estimation.
 The equation above is true for *any* class of trajectories $C$. This means that, for example-- we could use the work value of only a single trajectory
 to come up with an estimate of the free energy difference, provided we correctly conpensate via the term $\\ln \\frac{P_R(C^\\dagger)}{P_F(C)}$.
 A more practical solution would be to find classes of trajectories that are particularly well-suited
@@ -38,8 +38,8 @@ for estimating free energy differences-- for example, those that have a high pro
 trajectories with work values near the free energy difference, or even just a batch that has a particularly small variance in work values.
 Of course, with the caveat that we need to be able to estimate the term $\\ln \\frac{P_R(C^\\dagger)}{P_F(C)}$ accurately for the chosen class.
 
-Even more promising, is the fact that any asymptotically unbiased estimator of the free energy (say, for example the Bennett Acceptance Ratio method) can be plugged into the TCFT framework because
-it will agree with the log of the exponential average in the infinite sample limit. In this light, we can write the above into a more general form.
+Even more promising is the fact that any asymptotically unbiased estimator of the free energy (say, for example, the Bennett Acceptance Ratio method) can be plugged into the TCFT framework because
+it will agree with the log of the exponential average in the infinite sample limit. In this light, we can write the above into a more general form:
  $$
  \\beta \\Delta F = \\widehat{\\Delta F}(C) -  \\ln \\frac{P_R(C^\\dagger)}{P_F(C)}
 $$
@@ -65,7 +65,7 @@ Specify lower and upper bounds for the work values to be included in the traject
 The defined work distribution is visualized using a distribution editor, allowing for interactive adjustment of control points and bounds.
 When this button is pressed, the distribution of works in the reverse process and the free energy change are computed, 
 as well as the work values associated with the reverse class.  Also, this is an opportunity to verify that the
-built in sampler for the distribution and the reverse are working as expected. 
+built-in sampler for the distribution and the reverse are working as expected. 
 
 3. **Compare Free Energy Estimators**: 
 Using the work values sampled from the defined distribution, compute free energy estimates using both the Jarzynski equality and the Bennett Acceptance Ratio (BAR) method.

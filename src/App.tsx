@@ -79,6 +79,8 @@ $$
 \\beta \\Delta F = \\widehat{\\Delta F}(C) - \\ln \\frac{P_F(C)}{P_R(C^\\dagger)}
 $$
 
+The title of each subplots gives the average number of work values used in each estimator trial, and the failure rate of a standard symmetric confidence interval based on the chosen Z-score.
+
 *   **Top Row**: BAR-based estimators, $\\widehat{\\Delta F} = \\Delta F_{\\text{BAR}}$. Variance estimates use the MBAR method
 *   **Bottom Row**: Jarzynski-based estimators, $\\widehat{\\Delta F} = \\Delta F_{\\text{JAR}}$. Variance estimators naively take the sample's variance / sqrt(N)
  and propagate it through the logarithm. This is generically not a principled way to estimate the variance of an exponential estimator.

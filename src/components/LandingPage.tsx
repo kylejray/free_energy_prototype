@@ -15,7 +15,7 @@ can be used to recover free energy estimates that are remarkably unbiased.
 
 This idea stems from something called the [Trajectory Class Fluctuation Theorem](https://link.springer.com/article/10.1007/s10955-025-03422-z) (TCFT). The general idea dates back to at least 2005, when [Chris Jarzynski showed](https://doi.org/10.1103/PhysRevE.73.046105)
 how the probabilities of specific subclasses of trajectories in the forward and reverse processes were related to their impact when estimating free energy differences from exponential averages.
-More recently, this idea has been generalized into the TCFT, which states that any measureable subclass of
+More recently, this idea has been generalized by Greg Wimsatt, Alec Boyd and Jim Crutchfield into the TCFT, which states that any measureable subclass of
 trajectories $C$ satisfies:
 
 $$
@@ -24,7 +24,7 @@ $$
 Where the average is a conditional average among the trajectories in $C$, $\\Sigma$ is the entropy production associted with the trajectory,
 $P_F(C)$ is the probability of observing  a trajectory in class $C$ during the forward process, and $P_R(C^\\dagger)$ is the
 probability of observing the a trajectory in  the "reversed class" $C^\\dagger$ during the reverse process.
-Under some typical asssumptions, trajectories in all classes will have an entropy production that can be written as $\\Sigma = \\beta (W - \\Delta F)$, leading
+Under some typical asssumptions, trajectories within a class will all have an entropy production that can be written as $\\Sigma = \\beta (W - \\Delta F)$, leading
 to a somewhat familiar form of the equation:
 
 $$
@@ -73,7 +73,7 @@ These estimates are compared to understand how well each method performs given t
 [thermoflow](https://github.com/gecrooks/thermoflow) library, ported from jax to numpy (surprisngly, for performance reasons on the "free tier" hardware this is running on).
 
 4. **Variance Diagnostics**:
-Analyze previous standard ways of estimating the variance in the BAR method for free energy estimation. These are somewhat unrelated to the TCFT,
+Analyze standard ways of estimating the variance in the BAR method for free energy estimation. These are somewhat unrelated to the TCFT,
 but provide useful context for understanding the reliability of free energy estimates when work data from the full distribution is accesible. Again, these use the implementations from the thermoflow library
 directly ported to numpy.
 

@@ -48,8 +48,12 @@ and the term $\\ln \\frac{P_R(C^\\dagger)}{P_F(C)}$ is a correction factor that 
 
 This approach opens up a wide range of possibilities for designing sampling protocols and analyzing statistical simulations, in which the two estimation 
 problems need to be balanced. If, for example, we can find a particularly good way of estimating one of the two terms, we can focus on optimizing the other.
+In this arena, there is much room for innovation and exploration. Analytical results might provide exact expressions for the class probabilities, reducing the estimation problem to just the class conditioned free energy estimator.
+Alternatively, ML based methods to search sampling strategies could yield trajectory classes that are particularly amenable to accurate free energy estimation, even when the class probabilities are estimated via simple histogramming methods.
 
-Here, I don't provide a sampling strategy, but rather a simple interactive tool to explore how different classes of trajectories can be used to estimate free energy differences.
+Here, I don't provide any scalable sampling strategies or clever methods to calculate class probabilities, but rather a simple interactive tool 
+to explore how different trajectories subclassed by work values can be used to estimate free energy differences. More generally, calsses can
+be defined by any measurable property of the trajectories, but work values are a particularly convenient choice for this toy model.
 
 -Kyle Ray
 
